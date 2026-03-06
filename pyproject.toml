@@ -11,6 +11,7 @@ dependencies = [
     # --- 환경 변수 ---
     "python-dotenv>=1.2.2", # .env 로드
     # --- 네트워크 ---
+    "aiohttp>=3.12.0",      # 비동기 HTTP 클라이언트/서버
     "websockets>=15.0.1",   # WebSocket 클라이언트/서버
     # --- 직렬화 ---
     "orjson>=3.10.0",       # 고성능 JSON 직렬화/역직렬화
