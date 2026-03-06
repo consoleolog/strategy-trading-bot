@@ -34,10 +34,10 @@ class Ticker:
         ask_bid (AskBid): 매수/매도 구분 (ASK: 매도, BID: 매수)
         acc_ask_volume (Decimal): 누적 매도량
         acc_bid_volume (Decimal): 누적 매수량
-        highest_52_week_price (Decimal): 52주 최고가
-        highest_52_week_date (datetime): 52주 최고가 달성일 (yyyy-MM-dd)
-        lowest_52_week_price (Decimal): 52주 최저가
-        lowest_52_week_date (datetime): 52주 최저가 달성일 (yyyy-MM-dd)
+        highest_52_week_price (Decimal | None): 52주 최고가 (신규 상장 등 데이터 부재 시 None)
+        highest_52_week_date (datetime | None): 52주 최고가 달성일 (yyyy-MM-dd, 데이터 부재 시 None)
+        lowest_52_week_price (Decimal | None): 52주 최저가 (신규 상장 등 데이터 부재 시 None)
+        lowest_52_week_date (datetime | None): 52주 최저가 달성일 (yyyy-MM-dd, 데이터 부재 시 None)
         market_state (MarketState): 거래 상태 (ACTIVE, PREVIEW, DELISTED)
         timestamp (int): 타임스탬프 (ms)
         stream_type (StreamType): 스트림 타입 (SNAPSHOT, REALTIME)
@@ -66,10 +66,10 @@ class Ticker:
     ask_bid: AskBid
     acc_ask_volume: Decimal
     acc_bid_volume: Decimal
-    highest_52_week_price: Decimal
-    highest_52_week_date: datetime
-    lowest_52_week_price: Decimal
-    lowest_52_week_date: datetime
+    highest_52_week_price: Decimal | None
+    highest_52_week_date: datetime | None
+    lowest_52_week_price: Decimal | None
+    lowest_52_week_date: datetime | None
     market_state: MarketState
     timestamp: int
     stream_type: StreamType
@@ -92,11 +92,14 @@ class Ticker:
             "acc_trade_price_24h",
             "acc_ask_volume",
             "acc_bid_volume",
-            "highest_52_week_price",
-            "lowest_52_week_price",
         ]:
             value = getattr(self, field_name)
             if isinstance(value, (int, float, str)):
+                setattr(self, field_name, Decimal(str(value)))
+
+        for field_name in ["highest_52_week_price", "lowest_52_week_price"]:
+            value = getattr(self, field_name)
+            if value is not None and isinstance(value, (int, float, str)):
                 setattr(self, field_name, Decimal(str(value)))
 
         if isinstance(self.trade_date, str):

@@ -55,6 +55,9 @@ DECIMAL_FIELDS = [
     "acc_trade_price_24h",
     "acc_ask_volume",
     "acc_bid_volume",
+]
+
+OPTIONAL_DECIMAL_FIELDS = [
     "highest_52_week_price",
     "lowest_52_week_price",
 ]
@@ -171,6 +174,31 @@ def test_lowest_52_week_date_value():
     """lowest_52_week_date가 '2022-12-30'과 동일한 날짜 값을 가진다."""
     ticker = Ticker.from_dict(SAMPLE_DICT)
     assert ticker.lowest_52_week_date == datetime(2022, 12, 30)
+
+
+@pytest.mark.unit
+def test_52_week_fields_none_when_absent():
+    """52주 필드가 dict에 없으면 None을 유지한다 (신규 상장 코인 대응)."""
+    data = {
+        **SAMPLE_DICT,
+        "highest_52_week_price": None,
+        "highest_52_week_date": None,
+        "lowest_52_week_price": None,
+        "lowest_52_week_date": None,
+    }
+    ticker = Ticker.from_dict(data)
+    assert ticker.highest_52_week_price is None
+    assert ticker.highest_52_week_date is None
+    assert ticker.lowest_52_week_price is None
+    assert ticker.lowest_52_week_date is None
+
+
+@pytest.mark.unit
+def test_optional_52_week_decimal_fields_are_decimal_when_present():
+    """52주 가격 필드가 값이 있을 때 Decimal 타입으로 변환된다."""
+    ticker = Ticker.from_dict(SAMPLE_DICT)
+    assert isinstance(ticker.highest_52_week_price, Decimal)
+    assert isinstance(ticker.lowest_52_week_price, Decimal)
 
 
 @pytest.mark.unit
@@ -317,20 +345,44 @@ def test_to_dict_enum_fields_are_enum_type():
 
 @pytest.mark.unit
 def test_to_dict_datetime_fields_are_datetime_type():
-    """to_dict()의 datetime 필드는 datetime 타입으로 반환된다."""
+    """to_dict()의 필수 datetime 필드는 datetime 타입으로 반환된다."""
     result = Ticker.from_dict(SAMPLE_DICT).to_dict()
     assert isinstance(result["trade_date"], datetime)
     assert isinstance(result["trade_time"], datetime)
+
+
+@pytest.mark.unit
+def test_to_dict_optional_datetime_fields_when_present():
+    """to_dict()의 52주 datetime 필드는 값이 있을 때 datetime 타입으로 반환된다."""
+    result = Ticker.from_dict(SAMPLE_DICT).to_dict()
     assert isinstance(result["highest_52_week_date"], datetime)
     assert isinstance(result["lowest_52_week_date"], datetime)
 
 
 @pytest.mark.unit
+def test_to_dict_optional_datetime_fields_when_none():
+    """to_dict()의 52주 datetime 필드는 None일 때 None으로 반환된다."""
+    data = {**SAMPLE_DICT, "highest_52_week_date": None, "lowest_52_week_date": None}
+    result = Ticker.from_dict(data).to_dict()
+    assert result["highest_52_week_date"] is None
+    assert result["lowest_52_week_date"] is None
+
+
+@pytest.mark.unit
 def test_to_dict_decimal_fields_are_decimal_type():
-    """to_dict()의 Decimal 필드는 Decimal 타입으로 반환된다."""
+    """to_dict()의 필수 Decimal 필드는 Decimal 타입으로 반환된다."""
     result = Ticker.from_dict(SAMPLE_DICT).to_dict()
     for field in DECIMAL_FIELDS:
         assert isinstance(result[field], Decimal), f"{field} should be Decimal"
+
+
+@pytest.mark.unit
+def test_to_dict_optional_decimal_fields_when_none():
+    """to_dict()의 52주 가격 필드는 None일 때 None으로 반환된다."""
+    data = {**SAMPLE_DICT, "highest_52_week_price": None, "lowest_52_week_price": None}
+    result = Ticker.from_dict(data).to_dict()
+    assert result["highest_52_week_price"] is None
+    assert result["lowest_52_week_price"] is None
 
 
 @pytest.mark.unit
