@@ -227,3 +227,27 @@ class SignalDirection(Enum):
     SHORT = "short"
     CLOSE = "close"
     HOLD = "hold"
+
+
+# =============================================================================
+# Decision Enum
+# =============================================================================
+
+
+class DecisionState(Enum):
+    """
+    거래 결정의 처리 상태
+
+    Attributes:
+        PENDING: 대기 중 — 생성되었으나 아직 승인/거부되지 않은 상태
+        APPROVED: 승인됨 — 실행 조건을 충족하여 주문 실행 대기 중
+        REJECTED: 거부됨 — 리스크 검증 등의 이유로 실행이 거부된 상태
+        EXECUTED: 실행됨 — 주문이 실제로 제출된 상태
+        CANCELLED: 취소됨 — 승인 후 실행 전에 취소된 상태
+    """
+
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    EXECUTED = "EXECUTED"
+    CANCELLED = "CANCELLED"
