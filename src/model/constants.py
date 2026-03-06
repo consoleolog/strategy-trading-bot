@@ -91,3 +91,85 @@ class StreamType(Enum):
 
     SNAPSHOT = "SNAPSHOT"
     REALTIME = "REALTIME"
+
+
+# =============================================================================
+# Order Enum
+# =============================================================================
+
+
+class OrderSide(Enum):
+    """
+    주문 종류
+
+    Attributes:
+        BID: 매수
+        ASK: 매도
+    """
+
+    BID = "bid"
+    ASK = "ask"
+
+
+class OrderType(Enum):
+    """
+    주문 유형
+
+    Attributes:
+        LIMIT: 지정가 매수/매도 주문
+        PRICE: 시장가 매수 주문
+        MARKET: 시장가 매도 주문
+        BEST: 최유리 지정가 매수/매도 주문 (time_in_force 필드 설정 필수)
+    """
+
+    LIMIT = "limit"
+    PRICE = "price"
+    MARKET = "market"
+    BEST = "best"
+
+
+class OrderState(Enum):
+    """
+    주문 상태
+
+    Attributes:
+        WAIT: 체결 대기
+        WATCH: 예약 주문 대기
+        DONE: 체결 완료
+        CANCEL: 주문 취소
+    """
+
+    WAIT = "wait"
+    WATCH = "watch"
+    DONE = "done"
+    CANCEL = "cancel"
+
+
+class TimeInForce(Enum):
+    """
+    주문 체결 옵션
+
+    Attributes:
+        IOC: 지정가 조건으로 체결 가능한 수량만 즉시 부분 체결하고, 잔여 수량은 취소
+        FOK: 지정가 조건으로 주문량 전량 체결 가능할 때만 주문을 실행하고, 아닌 경우 전량 주문 취소
+        POST_ONLY: 지정가 조건으로 부분 또는 전체에 대해 즉시 체결 가능한 상황인 경우 주문을 실행하지 않고 취소
+    """
+
+    IOC = "ioc"
+    FOK = "fok"
+    POST_ONLY = "post_only"
+
+
+class SmpType(Enum):
+    """
+    자전거래 체결 방지 모드
+
+    Attributes:
+        CANCEL_MAKER: 메이커 주문(이전 주문)을 취소
+        CANCEL_TAKER: 테이커 주문(신규 주문)을 취소
+        REDUCE: 기존 주문과 신규 주문의 주문 수량을 줄여 체결을 방지. 잔량이 0인 경우 주문을 취소
+    """
+
+    CANCEL_MAKER = "cancel_maker"
+    CANCEL_TAKER = "cancel_taker"
+    REDUCE = "reduce"
