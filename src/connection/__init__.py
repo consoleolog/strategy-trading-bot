@@ -1,4 +1,5 @@
 from .cache import RedisClient
 from .database import PostgresPool
+from .market_data import MarketDataFeed
 
-__all__ = ["PostgresPool", "RedisClient"]
+__all__ = ["MarketDataFeed", "PostgresPool", "RedisClient"]
