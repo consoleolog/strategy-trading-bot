@@ -173,3 +173,57 @@ class SmpType(Enum):
     CANCEL_MAKER = "cancel_maker"
     CANCEL_TAKER = "cancel_taker"
     REDUCE = "reduce"
+
+
+# =============================================================================
+# Signal Enum
+# =============================================================================
+
+
+class SignalType(Enum):
+    """
+    시그널 종류
+
+    Attributes:
+        CROSS_OVER: 두 지표선이 교차할 때 발생 (예: MA 골든/데드 크로스)
+        THRESHOLD_CROSS: 지표가 0선을 교차할 때 발생 (예: MACD 0선 교차)
+        LEVEL_BREAK: 지표 또는 가격이 특정 레벨을 돌파할 때 발생 (예: RSI 70/30, 지지/저항선)
+    """
+
+    CROSS_OVER = "cross_over"
+    THRESHOLD_CROSS = "threshold_cross"
+    LEVEL_BREAK = "level_break"
+
+
+class SignalValue(Enum):
+    """
+    시그널 값 (방향 및 강도)
+
+    Attributes:
+        GOLDEN_CROSS: 골든 크로스 — 단기선이 장기선을 상향 돌파 (CROSS_OVER)
+        DEAD_CROSS: 데드 크로스 — 단기선이 장기선을 하향 돌파 (CROSS_OVER)
+        OVER_BOUGHT: 과매수 — 지표가 상단 레벨 초과 (LEVEL_BREAK)
+        OVER_SOLD: 과매도 — 지표가 하단 레벨 미만 (LEVEL_BREAK)
+    """
+
+    GOLDEN_CROSS = "golden_cross"
+    DEAD_CROSS = "dead_cross"
+    OVER_BOUGHT = "over_bought"
+    OVER_SOLD = "over_sold"
+
+
+class SignalDirection(Enum):
+    """
+    트레이딩 신호의 포지션 방향
+
+    Attributes:
+        LONG: 매수 진입 — 상승 예상 시 롱 포지션 진입
+        SHORT: 매도 진입 — 하락 예상 시 숏 포지션 진입 (선물/공매도)
+        CLOSE: 포지션 종료 — 보유 중인 포지션 청산
+        HOLD: 유지 — 현재 포지션 또는 대기 상태 유지
+    """
+
+    LONG = "long"
+    SHORT = "short"
+    CLOSE = "close"
+    HOLD = "hold"
