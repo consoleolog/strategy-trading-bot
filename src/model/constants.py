@@ -251,3 +251,29 @@ class DecisionState(Enum):
     REJECTED = "REJECTED"
     EXECUTED = "EXECUTED"
     CANCELLED = "CANCELLED"
+
+
+# =============================================================================
+# ExecutionResult Enum
+# =============================================================================
+
+
+class ExecutionState(Enum):
+    """
+    주문 체결 실행 상태
+
+    Attributes:
+        FILLED: 전량 체결 완료
+        PARTIALLY_FILLED: 부분 체결 — 주문 수량 중 일부만 체결된 상태
+        PENDING: 대기 중 — 체결 결과가 아직 확인되지 않은 상태
+        CANCELLED: 취소됨 — 체결 전 주문이 취소된 상태
+        REJECTED: 거부됨 — 거래소에 의해 주문이 거부된 상태
+        FAILED: 실패 — 시스템 오류 등으로 실행에 실패한 상태
+    """
+
+    FILLED = "FILLED"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    PENDING = "PENDING"
+    CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
+    FAILED = "FAILED"
