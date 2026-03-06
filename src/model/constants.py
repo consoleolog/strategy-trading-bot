@@ -32,6 +32,54 @@ class CandleType(Enum):
     HOUR_4 = "candle.240m"
 
 
+# =============================================================================
+# Ticker Enum
+# =============================================================================
+
+
+class ChangeDirection(Enum):
+    """
+    전일 종가 대비 가격 변동 방향
+
+    Attributes:
+        RISE: 상승
+        EVEN: 보합
+        FALL: 하락
+    """
+
+    RISE = "RISE"
+    EVEN = "EVEN"
+    FALL = "FALL"
+
+
+class MarketState(Enum):
+    """
+    거래 상태
+
+    Attributes:
+        PREVIEW: 입금지원
+        ACTIVE: 거래지원가능
+        DELISTED: 거래지원종료
+    """
+
+    PREVIEW = "PREVIEW"
+    ACTIVE = "ACTIVE"
+    DELISTED = "DELISTED"
+
+
+class AskBid(Enum):
+    """
+    매수/매도 구분
+
+    Attributes:
+        ASK: 매도
+        BID: 매수
+    """
+
+    ASK = "ASK"
+    BID = "BID"
+
+
 class StreamType(Enum):
     """
     스트림 타입
