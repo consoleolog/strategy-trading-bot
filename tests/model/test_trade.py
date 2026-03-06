@@ -277,3 +277,23 @@ def test_to_dict_string_fields():
     assert result["market"] == "KRW-BTC"
     assert result["strategy_id"] == "ma_crossover_v1"
     assert result["fee_asset"] == "KRW"
+
+
+# ---------------------------------------------------------------------------
+# property — value
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_value_is_price_times_volume():
+    """체결 총액이 체결 단가 x 체결 수량으로 계산된다."""
+    trade = Trade.from_dict(SAMPLE_DICT)
+    expected = Decimal("142000000") * Decimal("0.01")
+    assert trade.value == expected
+
+
+@pytest.mark.unit
+def test_value_is_decimal_type():
+    """체결 총액은 Decimal 타입으로 반환된다."""
+    trade = Trade.from_dict(SAMPLE_DICT)
+    assert isinstance(trade.value, Decimal)

@@ -88,3 +88,8 @@ class Trade:
             "decision_id": self.decision_id,
             "timestamp": self.timestamp,
         }
+
+    @property
+    def value(self) -> Decimal:
+        """체결 총액 (체결 단가 X 체결 수량)."""
+        return self.volume * self.price
