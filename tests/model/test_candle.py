@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 from src.model.candle import Candle
@@ -301,3 +302,89 @@ def test_to_dict_code_and_timestamp():
     result = candle.to_dict()
     assert result["code"] == "KRW-BTC"
     assert result["timestamp"] == SAMPLE_DICT["timestamp"]
+
+
+# ---------------------------------------------------------------------------
+# is_closed
+# ---------------------------------------------------------------------------
+
+# SAMPLE_DICT: type=candle.1s, candle_date_time_utc=2025-01-02T04:28:05
+# → 캔들 종료 시각 = 2025-01-02T04:28:06
+
+
+def _make_utc(dt: datetime):
+    """naive datetime을 timezone.utc aware로 만들어 반환한다."""
+    return dt.replace(tzinfo=timezone.utc)
+
+
+@pytest.mark.unit
+def test_is_closed_returns_false_before_interval():
+    """현재 시각이 캔들 종료 시각 이전이면 False를 반환한다."""
+    candle = Candle.from_dict(SAMPLE_DICT)
+    before_close = _make_utc(datetime(2025, 1, 2, 4, 28, 5))  # 종료 1초 전
+
+    with patch("src.model.candle.datetime") as mock_dt:
+        mock_dt.now.return_value = before_close
+        assert candle.is_closed is False
+
+
+@pytest.mark.unit
+def test_is_closed_returns_true_at_close_time():
+    """현재 시각이 캔들 종료 시각과 정확히 같으면 True를 반환한다."""
+    candle = Candle.from_dict(SAMPLE_DICT)
+    at_close = _make_utc(datetime(2025, 1, 2, 4, 28, 6))  # 종료 시각 정각
+
+    with patch("src.model.candle.datetime") as mock_dt:
+        mock_dt.now.return_value = at_close
+        assert candle.is_closed is True
+
+
+@pytest.mark.unit
+def test_is_closed_returns_true_after_interval():
+    """현재 시각이 캔들 종료 시각 이후면 True를 반환한다."""
+    candle = Candle.from_dict(SAMPLE_DICT)
+    after_close = _make_utc(datetime(2025, 1, 2, 4, 28, 10))  # 종료 후 4초 경과
+
+    with patch("src.model.candle.datetime") as mock_dt:
+        mock_dt.now.return_value = after_close
+        assert candle.is_closed is True
+
+
+@pytest.mark.unit
+def test_is_closed_minute_candle_before_close():
+    """1분봉의 현재 시각이 종료 전이면 False를 반환한다."""
+    data = {**SAMPLE_DICT, "type": "candle.1m"}
+    candle = Candle.from_dict(data)
+    # candle_date_time_utc=04:28:05, 종료=04:29:05
+    before_close = _make_utc(datetime(2025, 1, 2, 4, 29, 4))
+
+    with patch("src.model.candle.datetime") as mock_dt:
+        mock_dt.now.return_value = before_close
+        assert candle.is_closed is False
+
+
+@pytest.mark.unit
+def test_is_closed_minute_candle_after_close():
+    """1분봉의 현재 시각이 종료 후면 True를 반환한다."""
+    data = {**SAMPLE_DICT, "type": "candle.1m"}
+    candle = Candle.from_dict(data)
+    # candle_date_time_utc=04:28:05, 종료=04:29:05
+    after_close = _make_utc(datetime(2025, 1, 2, 4, 29, 5))
+
+    with patch("src.model.candle.datetime") as mock_dt:
+        mock_dt.now.return_value = after_close
+        assert candle.is_closed is True
+
+
+@pytest.mark.unit
+def test_is_closed_all_candle_types_closed():
+    """모든 CandleType에 대해 충분히 미래 시각이면 is_closed가 True다."""
+    far_future = _make_utc(datetime(2099, 1, 1))
+
+    for candle_type in CandleType:
+        data = {**SAMPLE_DICT, "type": candle_type.value}
+        candle = Candle.from_dict(data)
+
+        with patch("src.model.candle.datetime") as mock_dt:
+            mock_dt.now.return_value = far_future
+            assert candle.is_closed is True, f"{candle_type.value} should be closed"

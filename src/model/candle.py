@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
+from ..util.helpers import parse_timeframe
 from .constants import CandleType, StreamType
 
 
@@ -78,6 +79,17 @@ class Candle:
             timestamp=data.get("timestamp"),
             stream_type=data.get("stream_type"),
         )
+
+    @property
+    def is_closed(self) -> bool:
+        """캔들 기간이 종료되었는지 여부를 반환합니다.
+
+        업비트 WebSocket은 is_closed 필드를 제공하지 않으므로,
+        candle_date_time_utc + interval <= 현재 UTC 시각으로 판단합니다.
+        """
+        candle_close_time = self.candle_date_time_utc + parse_timeframe(self.type.value)
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        return now_utc >= candle_close_time
 
     def to_dict(self) -> dict:
         """Candle 객체를 딕셔너리로 변환합니다."""
