@@ -79,7 +79,7 @@ def test_parse_timeframe_all_candle_types():
     """모든 CandleType 값이 ValueError 없이 timedelta로 변환된다."""
     expected = {
         CandleType.SECOND: timedelta(seconds=1),
-        CandleType.MINUTE: timedelta(minutes=1),
+        CandleType.MINUTE_1: timedelta(minutes=1),
         CandleType.MINUTE_3: timedelta(minutes=3),
         CandleType.MINUTE_5: timedelta(minutes=5),
         CandleType.MINUTE_10: timedelta(minutes=10),

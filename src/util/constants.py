@@ -11,7 +11,7 @@ class CandleType(Enum):
 
     Attributes:
         SECOND: 초봉 (candle.1s)
-        MINUTE: 1분봉 (candle.1m)
+        MINUTE_1: 1분봉 (candle.1m)
         MINUTE_3: 3분봉 (candle.3m)
         MINUTE_5: 5분봉 (candle.5m)
         MINUTE_10: 10분봉 (candle.10m)
@@ -22,7 +22,7 @@ class CandleType(Enum):
     """
 
     SECOND = "candle.1s"
-    MINUTE = "candle.1m"
+    MINUTE_1 = "candle.1m"
     MINUTE_3 = "candle.3m"
     MINUTE_5 = "candle.5m"
     MINUTE_10 = "candle.10m"
