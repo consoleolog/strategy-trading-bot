@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.util.constants import CandleType
-from src.util.helpers import parse_timeframe, retry
+from src.util.helpers import parse_timeframe, rate_limit, retry
 
 # ---------------------------------------------------------------------------
 # 기본 포맷 — 단순 단위 문자열
@@ -367,3 +367,181 @@ def test_retry_returns_async_wrapper_for_async_func():
         return 1
 
     assert _asyncio.iscoroutinefunction(func)
+
+
+# ---------------------------------------------------------------------------
+# rate_limit — sync
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_rate_limit_sync_returns_sync_wrapper():
+    """sync 함수에는 sync 래퍼가 반환된다 (coroutine이 아님)."""
+
+    @rate_limit(calls=5, period=1.0)
+    def func():
+        return 1
+
+    assert not asyncio.iscoroutinefunction(func)
+
+
+@pytest.mark.unit
+def test_rate_limit_sync_succeeds_within_limit():
+    """호출 횟수가 한도 이내이면 즉시 반환된다."""
+
+    @rate_limit(calls=5, period=1.0)
+    def func():
+        return 42
+
+    assert func() == 42
+
+
+@pytest.mark.unit
+def test_rate_limit_sync_calls_up_to_limit_without_sleep():
+    """한도 이내의 호출은 sleep 없이 처리된다."""
+    sleep_calls = []
+
+    @rate_limit(calls=5, period=1.0)
+    def func():
+        return 1
+
+    with patch("time.sleep", side_effect=lambda s: sleep_calls.append(s)):
+        for _ in range(5):
+            func()
+
+    assert sleep_calls == []
+
+
+@pytest.mark.unit
+def test_rate_limit_sync_sleeps_when_limit_exceeded(monkeypatch):
+    """한도 초과 시 time.sleep이 호출된다."""
+    slept = []
+    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+
+    # period를 매우 크게 설정하여 호출 간격이 짧아 보이도록 만든다
+    @rate_limit(calls=2, period=100.0)
+    def func():
+        return 1
+
+    func()
+    func()
+    func()  # 3번째 호출에서 sleep 발생
+
+    assert len(slept) == 1
+    assert slept[0] > 0
+
+
+@pytest.mark.unit
+def test_rate_limit_sync_preserves_return_value():
+    """rate_limit이 함수 반환값을 그대로 전달한다."""
+
+    @rate_limit(calls=10, period=1.0)
+    def func():
+        return {"result": "ok"}
+
+    assert func() == {"result": "ok"}
+
+
+@pytest.mark.unit
+def test_rate_limit_sync_wraps_function_name():
+    """@wraps로 원래 함수 이름이 유지된다."""
+
+    @rate_limit(calls=5, period=1.0)
+    def my_function():
+        return 1
+
+    assert my_function.__name__ == "my_function"
+
+
+# ---------------------------------------------------------------------------
+# rate_limit — async
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_rate_limit_async_returns_async_wrapper():
+    """async 함수에는 async 래퍼가 반환된다."""
+
+    @rate_limit(calls=5, period=1.0)
+    async def func():
+        return 1
+
+    assert asyncio.iscoroutinefunction(func)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rate_limit_async_succeeds_within_limit():
+    """호출 횟수가 한도 이내이면 즉시 반환된다."""
+
+    @rate_limit(calls=5, period=1.0)
+    async def func():
+        return 42
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        result = await func()
+
+    assert result == 42
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rate_limit_async_calls_up_to_limit_without_sleep():
+    """한도 이내의 호출은 asyncio.sleep 없이 처리된다."""
+    sleep_mock = AsyncMock()
+
+    @rate_limit(calls=5, period=1.0)
+    async def func():
+        return 1
+
+    with patch("asyncio.sleep", sleep_mock):
+        for _ in range(5):
+            await func()
+
+    sleep_mock.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rate_limit_async_sleeps_when_limit_exceeded():
+    """한도 초과 시 asyncio.sleep이 호출된다."""
+    sleep_mock = AsyncMock()
+
+    @rate_limit(calls=2, period=100.0)
+    async def func():
+        return 1
+
+    with patch("asyncio.sleep", sleep_mock):
+        await func()
+        await func()
+        await func()  # 3번째 호출에서 sleep 발생
+
+    sleep_mock.assert_called_once()
+    sleep_time = sleep_mock.call_args[0][0]
+    assert sleep_time > 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rate_limit_async_preserves_return_value():
+    """rate_limit이 함수 반환값을 그대로 전달한다."""
+
+    @rate_limit(calls=10, period=1.0)
+    async def func():
+        return {"result": "ok"}
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        result = await func()
+
+    assert result == {"result": "ok"}
+
+
+@pytest.mark.unit
+def test_rate_limit_async_wraps_function_name():
+    """@wraps로 원래 함수 이름이 유지된다."""
+
+    @rate_limit(calls=5, period=1.0)
+    async def my_async_function():
+        return 1
+
+    assert my_async_function.__name__ == "my_async_function"

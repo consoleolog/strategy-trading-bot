@@ -78,3 +78,56 @@ def retry(max_retries: int = 3, delay: float = 1.0, exponential_backoff: bool = 
         return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
 
     return decorator
+
+
+def rate_limit(calls: int = 10, period: float = 1.0) -> Callable[[Callable], Callable]:
+    """
+    async 및 sync 함수에 호출 빈도 제한을 적용하는 데코레이터.
+
+    지정된 시간(period) 내에 최대 호출 횟수(calls)를 초과하면,
+    다음 호출이 허용될 때까지 자동으로 대기한다.
+
+    Args:
+        calls: period 동안 최대로 호출할 수 있는 횟수 (기본값 10)
+        period: 측정할 시간의 폭 (초, 기본값 1.0)
+
+    Returns:
+        데코레이터 함수
+    """
+
+    def decorator(func: Callable) -> Callable:
+        calls_made: list[float] = []
+
+        @wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            nonlocal calls_made
+            now: float = time.time()
+            calls_made = [t for t in calls_made if now - t < period]
+
+            if len(calls_made) >= calls:
+                sleep_time: float = period - (now - calls_made[0])
+                if sleep_time > 0:
+                    await asyncio.sleep(sleep_time)
+                    calls_made.clear()
+
+            calls_made.append(time.time())
+            return await func(*args, **kwargs)
+
+        @wraps(func)
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+            nonlocal calls_made
+            now: float = time.time()
+            calls_made = [t for t in calls_made if now - t < period]
+
+            if len(calls_made) >= calls:
+                sleep_time: float = period - (now - calls_made[0])
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                    calls_made.clear()
+
+            calls_made.append(time.time())
+            return func(*args, **kwargs)
+
+        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+
+    return decorator
