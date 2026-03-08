@@ -26,15 +26,15 @@ class UpbitAdapter:
     async def connect(self) -> None:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
-            logger.info("Connected to Upbit")
+            logger.info("🔗 Connected to Upbit")
 
-    async def disconnect(self):
+    async def disconnect(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
-            logger.info("Disconnected from Upbit")
+            logger.info("🔌 Disconnected from Upbit")
 
-    async def _ensure_session(self):
+    async def _ensure_session(self) -> None:
         if self._session is None or self._session.closed:
             await self.connect()
 
