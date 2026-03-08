@@ -5,6 +5,8 @@ from urllib.parse import unquote, urlencode
 import jwt
 import pytest
 from src.connection.adapter import UpbitAdapter
+from src.model.candle import Candle
+from src.util.constants import CandleType, StreamType, Timeframe
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -516,3 +518,173 @@ async def test_request_calls_ensure_session(adapter: UpbitAdapter):
         await adapter._request("GET", "/markets")
 
     mock_ensure.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# get_candles / _timeframe_to_candle_type
+# ---------------------------------------------------------------------------
+
+_SAMPLE_RAW = [
+    {
+        "market": "KRW-BTC",
+        "candle_date_time_utc": "2025-01-03T00:00:00",
+        "candle_date_time_kst": "2025-01-03T09:00:00",
+        "opening_price": 143000000.0,
+        "high_price": 145000000.0,
+        "low_price": 142000000.0,
+        "trade_price": 144000000.0,
+        "candle_acc_trade_volume": 10.5,
+        "candle_acc_trade_price": 1500000000.0,
+        "timestamp": 1735862400000,
+    },
+    {
+        "market": "KRW-BTC",
+        "candle_date_time_utc": "2025-01-02T00:00:00",
+        "candle_date_time_kst": "2025-01-02T09:00:00",
+        "opening_price": 141000000.0,
+        "high_price": 143000000.0,
+        "low_price": 140000000.0,
+        "trade_price": 142000000.0,
+        "candle_acc_trade_volume": 8.2,
+        "candle_acc_trade_price": 1160000000.0,
+        "timestamp": 1735776000000,
+    },
+]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_returns_list_of_candles(adapter: UpbitAdapter):
+    """반환값이 Candle 리스트다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW):
+        result = await adapter.get_candles("KRW-BTC")
+
+    assert isinstance(result, list)
+    assert all(isinstance(c, Candle) for c in result)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_reverses_order(adapter: UpbitAdapter):
+    """API 응답(최신→과거)을 과거→최신 순으로 역전한다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW):
+        result = await adapter.get_candles("KRW-BTC")
+
+    # _SAMPLE_RAW[0]이 최신, [1]이 과거 → 역전 후 [0]이 과거여야 함
+    assert result[0].candle_date_time_utc < result[1].candle_date_time_utc
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_calls_request_with_correct_endpoint(adapter: UpbitAdapter):
+    """_request()가 올바른 엔드포인트로 호출된다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW) as mock_req:
+        await adapter.get_candles("KRW-BTC", timeframe=Timeframe.MINUTE_1)
+
+    mock_req.assert_awaited_once()
+    assert mock_req.call_args.args[1] == f"/candles/{Timeframe.MINUTE_1.value}"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_passes_market_and_count(adapter: UpbitAdapter):
+    """market과 count가 params에 포함된다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW) as mock_req:
+        await adapter.get_candles("KRW-ETH", count=50)
+
+    params = mock_req.call_args.kwargs["params"]
+    assert params["market"] == "KRW-ETH"
+    assert params["count"] == 50
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_default_count_is_200(adapter: UpbitAdapter):
+    """count 기본값은 200이다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW) as mock_req:
+        await adapter.get_candles("KRW-BTC")
+
+    params = mock_req.call_args.kwargs["params"]
+    assert params["count"] == 200
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_default_timeframe_is_day(adapter: UpbitAdapter):
+    """timeframe 기본값은 Timeframe.DAY다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW) as mock_req:
+        await adapter.get_candles("KRW-BTC")
+
+    endpoint = mock_req.call_args.args[1]
+    assert endpoint == f"/candles/{Timeframe.DAY.value}"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_includes_to_when_provided(adapter: UpbitAdapter):
+    """to 인자가 전달되면 params에 포함된다."""
+    to_str = "2025-01-03T00:00:00Z"
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW) as mock_req:
+        await adapter.get_candles("KRW-BTC", to=to_str)
+
+    params = mock_req.call_args.kwargs["params"]
+    assert params["to"] == to_str
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_omits_to_when_not_provided(adapter: UpbitAdapter):
+    """to 인자가 없으면 params에 포함되지 않는다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW) as mock_req:
+        await adapter.get_candles("KRW-BTC")
+
+    params = mock_req.call_args.kwargs["params"]
+    assert "to" not in params
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_stream_type_is_snapshot(adapter: UpbitAdapter):
+    """모든 Candle의 stream_type이 SNAPSHOT이다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW):
+        result = await adapter.get_candles("KRW-BTC")
+
+    assert all(c.stream_type == StreamType.SNAPSHOT for c in result)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_candles_candle_fields_mapped_correctly(adapter: UpbitAdapter):
+    """Candle 필드가 API 응답과 올바르게 매핑된다."""
+    raw = _SAMPLE_RAW[1]  # 과거 항목 (역전 후 index 0)
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_RAW):
+        result = await adapter.get_candles("KRW-BTC")
+
+    candle = result[0]
+    assert candle.code == raw["market"]
+    assert candle.opening_price == raw["opening_price"]
+    assert candle.high_price == raw["high_price"]
+    assert candle.low_price == raw["low_price"]
+    assert candle.trade_price == raw["trade_price"]
+    assert candle.timestamp == raw["timestamp"]
+
+
+# _timeframe_to_candle_type
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "timeframe, expected",
+    [
+        (Timeframe.SECOND, CandleType.SECOND),
+        (Timeframe.MINUTE_1, CandleType.MINUTE_1),
+        (Timeframe.MINUTE_3, CandleType.MINUTE_3),
+        (Timeframe.MINUTE_5, CandleType.MINUTE_5),
+        (Timeframe.HALF_HOUR, CandleType.HALF_HOUR),
+        (Timeframe.HOUR, CandleType.HOUR),
+        (Timeframe.HOUR_4, CandleType.HOUR_4),
+    ],
+)
+def test_timeframe_to_candle_type_mapping(timeframe: Timeframe, expected: CandleType):
+    """각 Timeframe이 대응하는 CandleType으로 변환된다."""
+    assert UpbitAdapter._timeframe_to_candle_type(timeframe) == expected

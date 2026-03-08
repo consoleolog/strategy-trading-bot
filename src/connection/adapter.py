@@ -6,6 +6,8 @@ import aiohttp
 import jwt
 import structlog
 
+from ..model import Candle
+from ..util.constants import CandleType, StreamType, Timeframe
 from ..util.errors import error_handler
 
 logger = structlog.get_logger(__name__)
@@ -85,3 +87,64 @@ class UpbitAdapter:
         except aiohttp.ClientError as error:
             logger.exception("❌ 요청 실패", error=str(error))
             raise
+
+    # ========================================================================
+    # CANDLE DATA
+    # ========================================================================
+
+    async def get_candles(
+        self, market: str, timeframe: Timeframe = Timeframe.DAY, count: int = 200, to: str | None = None
+    ) -> list[Candle]:
+        """
+        캔들 조회 (괴거 -> 최신 순)
+
+        Args:
+            market: 조회하고자 하는 페어(거래쌍)
+            timeframe: 조회하고자 하는 기간
+            count: 조회하고자 하는 캔들의 개수. 최대 200개의 캔들 조회를 지원하며, 기본값은 200입니다.
+            to: 조회 기간의 종료 시각.
+                지정한 시각 이전 캔들을 조회합니다. 미지정시 요청 시각을 기준으로 최근 캔들이 조회됩니다.
+
+                ISO 8601 형식의 datetime으로 아래와 같이 요청 할 수 있습니다.
+                실제 요청 시에는 공백 및 특수문자가 정상적으로 처리되도록 URL 인코딩을 수행해야 합니다.
+                [예시]
+                2025-06-24T04:56:53Z
+                2025-06-24 04:56:53
+                2025-06-24T13:56:53+09:00
+        """
+        params = {"market": market, "count": count}
+        if to:
+            params["to"] = to
+        response = await self._request("GET", f"/candles/{timeframe.value}", params=params)
+        # response 는 최신 -> 과거 데이터이기 때문에 슬라이싱으로 과거 -> 최신으로 정렬
+        candles = [
+            Candle(
+                type=self._timeframe_to_candle_type(timeframe),
+                code=r.get("market"),
+                candle_date_time_utc=r.get("candle_date_time_utc"),
+                candle_date_time_kst=r.get("candle_date_time_kst"),
+                opening_price=r.get("opening_price"),
+                high_price=r.get("high_price"),
+                low_price=r.get("low_price"),
+                trade_price=r.get("trade_price"),
+                candle_acc_trade_volume=r.get("candle_acc_trade_volume"),
+                candle_acc_trade_price=r.get("candle_acc_trade_price"),
+                timestamp=r.get("timestamp"),
+                stream_type=StreamType.SNAPSHOT,
+            )
+            for r in response[::-1]
+        ]
+        return candles
+
+    @staticmethod
+    def _timeframe_to_candle_type(timeframe: Timeframe) -> CandleType:
+        timeframe_to_candle_type_map = {
+            Timeframe.SECOND: CandleType.SECOND,
+            Timeframe.MINUTE_1: CandleType.MINUTE_1,
+            Timeframe.MINUTE_3: CandleType.MINUTE_3,
+            Timeframe.MINUTE_5: CandleType.MINUTE_5,
+            Timeframe.HALF_HOUR: CandleType.HALF_HOUR,
+            Timeframe.HOUR: CandleType.HOUR,
+            Timeframe.HOUR_4: CandleType.HOUR_4,
+        }
+        return timeframe_to_candle_type_map.get(timeframe, Timeframe.HOUR_4)
