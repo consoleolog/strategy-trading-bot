@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
-from .constants import SignalDirection
+from ..util.constants import SignalDirection
 from .signal import Signal
 
 

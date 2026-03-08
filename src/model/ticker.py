@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from .constants import AskBid, ChangeDirection, MarketState, StreamType
+from ..util.constants import AskBid, ChangeDirection, MarketState, StreamType
 
 
 @dataclass

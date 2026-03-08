@@ -1,8 +1,8 @@
 from datetime import datetime
 
 import pytest
-from src.model.constants import SignalDirection, SignalType, SignalValue
 from src.model.signal import Signal
+from src.util.constants import SignalDirection, SignalType, SignalValue
 
 SAMPLE_DICT = {
     "strategy_id": "ma_crossover_v1",

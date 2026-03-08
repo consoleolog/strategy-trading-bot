@@ -3,8 +3,8 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from src.model.constants import OrderSide, OrderState, OrderType, SmpType, TimeInForce
 from src.model.order import Order
+from src.util.constants import OrderSide, OrderState, OrderType, SmpType, TimeInForce
 
 SAMPLE_DICT = {
     "market": "KRW-BTC",

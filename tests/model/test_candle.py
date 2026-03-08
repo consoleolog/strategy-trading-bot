@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from src.model.candle import Candle
-from src.model.constants import CandleType, StreamType
+from src.util.constants import CandleType, StreamType
 
 SAMPLE_DICT = {
     "type": "candle.1s",

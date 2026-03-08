@@ -2,8 +2,8 @@ from datetime import datetime
 from decimal import Decimal
 
 import pytest
-from src.model.constants import AskBid, ChangeDirection, MarketState, StreamType
 from src.model.ticker import Ticker
+from src.util.constants import AskBid, ChangeDirection, MarketState, StreamType
 
 SAMPLE_DICT = {
     "type": "ticker",

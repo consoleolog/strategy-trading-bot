@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from src.model.constants import CandleType
+from src.util.constants import CandleType
 from src.util.helpers import parse_timeframe
 
 # ---------------------------------------------------------------------------

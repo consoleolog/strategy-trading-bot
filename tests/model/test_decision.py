@@ -2,9 +2,9 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from src.model.constants import DecisionState, SignalDirection, SignalType, SignalValue
 from src.model.decision import Decision
 from src.model.signal import Signal
+from src.util.constants import DecisionState, SignalDirection, SignalType, SignalValue
 
 SAMPLE_SIGNAL_DICT = {
     "strategy_id": "ma_crossover_v1",

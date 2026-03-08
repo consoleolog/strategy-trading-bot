@@ -3,8 +3,8 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from src.model.constants import ExecutionState
 from src.model.execution_result import ExecutionResult
+from src.util.constants import ExecutionState
 
 DECISION_ID = "cdd92199-2897-4e14-9448-f923320408ad"
 ORDER_UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"

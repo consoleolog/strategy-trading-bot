@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from .constants import SignalDirection, SignalType, SignalValue
+from ..util.constants import SignalDirection, SignalType, SignalValue
 
 
 @dataclass

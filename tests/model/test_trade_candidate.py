@@ -2,9 +2,9 @@ from datetime import datetime
 from decimal import Decimal
 
 import pytest
-from src.model.constants import SignalDirection, SignalType, SignalValue
 from src.model.signal import Signal
 from src.model.trade_candidate import TradeCandidate
+from src.util.constants import SignalDirection, SignalType, SignalValue
 
 SAMPLE_SIGNAL_DICT = {
     "strategy_id": "ma_crossover_v1",

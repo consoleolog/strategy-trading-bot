@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from .constants import DecisionState, SignalDirection
+from ..util.constants import DecisionState, SignalDirection
 from .signal import Signal
 
 

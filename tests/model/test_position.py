@@ -2,8 +2,8 @@ from datetime import datetime
 from decimal import Decimal
 
 import pytest
-from src.model.constants import SignalDirection
 from src.model.position import Position
+from src.util.constants import SignalDirection
 
 SAMPLE_DICT = {
     "market": "KRW-BTC",

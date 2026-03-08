@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from .constants import OrderSide
+from ..util.constants import OrderSide
 
 
 @dataclass

@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from ..util.constants import CandleType, StreamType
 from ..util.helpers import parse_timeframe
-from .constants import CandleType, StreamType
 
 
 @dataclass
