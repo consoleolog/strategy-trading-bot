@@ -1,4 +1,9 @@
+import hashlib
+import uuid
+from urllib.parse import unquote, urlencode
+
 import aiohttp
+import jwt
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -32,3 +37,23 @@ class UpbitAdapter:
     async def _ensure_session(self):
         if self._session is None or self._session.closed:
             await self.connect()
+
+    # ========================================================================
+    # REQUEST HELPERS
+    # ========================================================================
+
+    def _sign_request(self, params: dict | None = None) -> str:
+        payload = {
+            "access_key": self.api_key,
+            "nonce": str(uuid.uuid4()),
+        }
+        if params:
+            query_string = unquote(urlencode(params, doseq=True)).encode("utf-8")
+            m = hashlib.sha512()
+            m.update(query_string)
+            query_hash = m.hexdigest()
+
+            payload["query_hash"] = query_hash
+            payload["query_hash_alg"] = "SHA512"
+
+        return jwt.encode(payload, self.api_secret, algorithm="HS256")
