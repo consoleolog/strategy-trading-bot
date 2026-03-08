@@ -5,8 +5,16 @@ from urllib.parse import unquote, urlencode
 import jwt
 import pytest
 from src.connection.adapter import UpbitAdapter
-from src.model.candle import Candle
-from src.util.constants import CandleType, StreamType, Timeframe
+from src.model import Candle, Order
+from src.util.constants import (
+    CandleType,
+    OrderSide,
+    OrderType,
+    SmpType,
+    StreamType,
+    Timeframe,
+    TimeInForce,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -279,6 +287,14 @@ def test_sign_request_query_hash_is_correct(adapter: UpbitAdapter):
 
 
 @pytest.mark.unit
+def test_sign_request_post_omits_query_hash(adapter: UpbitAdapter):
+    """POST 요청 시나리오(params=None)에서는 query_hash가 포함되지 않는다."""
+    token = adapter._sign_request(None)
+    payload = _decode(token, adapter.api_secret)
+    assert "query_hash" not in payload
+
+
+@pytest.mark.unit
 def test_sign_request_with_empty_params_has_no_query_hash(adapter: UpbitAdapter):
     """빈 dict 전달 시 query_hash가 포함되지 않는다."""
     token = adapter._sign_request({})
@@ -363,6 +379,21 @@ async def test_request_get_returns_json_data(connected_adapter: UpbitAdapter, mo
     result = await connected_adapter._request("GET", "/markets")
 
     assert result == data
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_post_signed_passes_params_to_sign_request(
+    connected_adapter: UpbitAdapter, mock_session: MagicMock
+):
+    """POST 요청 시 signed=True이면 params가 _sign_request에 전달된다."""
+    response = _make_api_response()
+    mock_session.post = AsyncMock(return_value=response)
+    params = {"market": "KRW-BTC", "side": "bid", "price": "10000"}
+
+    with patch.object(connected_adapter, "_sign_request", wraps=connected_adapter._sign_request) as mock_sign:
+        await connected_adapter._request("POST", "/orders", params=params, signed=True)
+        mock_sign.assert_called_with(params)
 
 
 # POST
@@ -667,6 +698,222 @@ async def test_get_candles_candle_fields_mapped_correctly(adapter: UpbitAdapter)
     assert candle.low_price == raw["low_price"]
     assert candle.trade_price == raw["trade_price"]
     assert candle.timestamp == raw["timestamp"]
+
+
+# ---------------------------------------------------------------------------
+# ORDER OPERATIONS
+# ---------------------------------------------------------------------------
+
+_SAMPLE_ORDER_RAW = {
+    "uuid": "cdd11100-1111-1111-1111-000000000000",
+    "side": "bid",
+    "ord_type": "limit",
+    "price": "100.0",
+    "state": "wait",
+    "market": "KRW-BTC",
+    "created_at": "2023-01-01T00:00:00+09:00",
+    "volume": "0.01",
+    "remaining_volume": "0.01",
+    "executed_volume": "0.0",
+    "trades_count": 0,
+    "reserved_fee": "0.0",
+    "remaining_fee": "0.0",
+    "paid_fee": "0.0",
+    "locked": "1.0",
+    "identifier": "my-id",
+}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_order_limit_success(adapter: UpbitAdapter):
+    """지정가 주문 성공 케이스"""
+    from decimal import Decimal
+
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_ORDER_RAW) as mock_req:
+        result = await adapter.create_order(
+            market="KRW-BTC", side=OrderSide.BID, ord_type=OrderType.LIMIT, volume=Decimal("0.01"), price=Decimal("100")
+        )
+
+    assert isinstance(result, Order)
+    assert str(result.uuid) == _SAMPLE_ORDER_RAW["uuid"]
+    params = mock_req.call_args.kwargs["params"]
+    assert params["ord_type"] == "limit"
+    assert params["volume"] == "0.01"
+    assert params["price"] == "100"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_order_limit_missing_params_raises(adapter: UpbitAdapter):
+    """지정가 주문 시 필수 파라미터 누락 시 ValueError"""
+    from decimal import Decimal
+
+    with pytest.raises(ValueError, match=r"지정가 주문\(limit\)은 `volume`과 `price`가 모두 필수"):
+        await adapter.create_order(
+            market="KRW-BTC", side=OrderSide.BID, ord_type=OrderType.LIMIT, volume=Decimal("0.01")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_order_market_sell_success(adapter: UpbitAdapter):
+    """시장가 매도 주문 성공 케이스"""
+    from decimal import Decimal
+
+    raw = _SAMPLE_ORDER_RAW.copy()
+    raw["ord_type"] = "market"
+    raw["side"] = "ask"
+
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=raw) as mock_req:
+        await adapter.create_order(
+            market="KRW-BTC", side=OrderSide.ASK, ord_type=OrderType.MARKET, volume=Decimal("0.1")
+        )
+
+    params = mock_req.call_args.kwargs["params"]
+    assert params["ord_type"] == "market"
+    assert "price" not in params
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_order_market_sell_wrong_side_raises(adapter: UpbitAdapter):
+    """시장가 매도 주문에 매수 side를 넣으면 ValueError"""
+    from decimal import Decimal
+
+    with pytest.raises(ValueError, match=r"시장가 매도 주문\(market\)은 `side=ask`여야 합니다"):
+        await adapter.create_order(
+            market="KRW-BTC", side=OrderSide.BID, ord_type=OrderType.MARKET, volume=Decimal("0.1")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_order_price_buy_success(adapter: UpbitAdapter):
+    """시장가 매수(총액) 주문 성공 케이스"""
+    from decimal import Decimal
+
+    raw = _SAMPLE_ORDER_RAW.copy()
+    raw["ord_type"] = "price"
+
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=raw) as mock_req:
+        await adapter.create_order(
+            market="KRW-BTC", side=OrderSide.BID, ord_type=OrderType.PRICE, price=Decimal("10000")
+        )
+
+    params = mock_req.call_args.kwargs["params"]
+    assert params["ord_type"] == "price"
+    assert params["price"] == "10000"
+    assert "volume" not in params
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_order_best_success(adapter: UpbitAdapter):
+    """최유리 지정가 주문 성공 케이스"""
+    from decimal import Decimal
+
+    raw = _SAMPLE_ORDER_RAW.copy()
+    raw["ord_type"] = "best"
+
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=raw) as mock_req:
+        await adapter.create_order(
+            market="KRW-BTC",
+            side=OrderSide.BID,
+            ord_type=OrderType.BEST,
+            price=Decimal("10000"),
+            time_in_force=TimeInForce.IOC,
+        )
+
+    params = mock_req.call_args.kwargs["params"]
+    assert params["ord_type"] == "best"
+    assert params["time_in_force"] == "ioc"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_order_best_missing_tif_raises(adapter: UpbitAdapter):
+    """최유리 지정가 주문 시 ioc/fok가 아니면 ValueError"""
+    from decimal import Decimal
+
+    with pytest.raises(ValueError, match=r"최유리 지정가 주문\(best\)은 `time_in_force`를 `ioc` 또는 `fok`로 설정"):
+        await adapter.create_order(
+            market="KRW-BTC", side=OrderSide.BID, ord_type=OrderType.BEST, price=Decimal("10000")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_order_post_only_with_smp_raises(adapter: UpbitAdapter):
+    """post_only와 smp_type 혼용 시 ValueError"""
+    from decimal import Decimal
+
+    with pytest.raises(ValueError, match=r"`post_only` 옵션은 `smp_type` 옵션과 함께 사용할 수 없습니다"):
+        await adapter.create_order(
+            market="KRW-BTC",
+            side=OrderSide.BID,
+            ord_type=OrderType.LIMIT,
+            volume=Decimal("0.1"),
+            price=Decimal("100"),
+            time_in_force=TimeInForce.POST_ONLY,
+            smp_type=SmpType.CANCEL_MAKER,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_limit_order_wrapper(adapter: UpbitAdapter):
+    """limit_order 래퍼 메서드 호출 확인"""
+    from decimal import Decimal
+
+    with patch.object(adapter, "create_order", new_callable=AsyncMock) as mock_create:
+        await adapter.limit_order("KRW-BTC", OrderSide.BID, Decimal("0.1"), Decimal("100"))
+        mock_create.assert_called_once_with(
+            "KRW-BTC",
+            OrderSide.BID,
+            ord_type=OrderType.LIMIT,
+            volume=Decimal("0.1"),
+            price=Decimal("100"),
+            time_in_force=None,
+            smp_type=None,
+            identifier=None,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_market_order_wrapper(adapter: UpbitAdapter):
+    """market_order 래퍼 메서드 호출 확인"""
+    from decimal import Decimal
+
+    with patch.object(adapter, "create_order", new_callable=AsyncMock) as mock_create:
+        await adapter.market_order("KRW-BTC", Decimal("0.1"))
+        mock_create.assert_called_once_with(
+            "KRW-BTC",
+            side=OrderSide.ASK,
+            ord_type=OrderType.MARKET,
+            volume=Decimal("0.1"),
+            smp_type=None,
+            identifier=None,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_price_order_wrapper(adapter: UpbitAdapter):
+    """price_order 래퍼 메서드 호출 확인"""
+    from decimal import Decimal
+
+    with patch.object(adapter, "create_order", new_callable=AsyncMock) as mock_create:
+        await adapter.price_order("KRW-BTC", Decimal("10000"))
+        mock_create.assert_called_once_with(
+            "KRW-BTC",
+            side=OrderSide.BID,
+            ord_type=OrderType.PRICE,
+            price=Decimal("10000"),
+            smp_type=None,
+            identifier=None,
+        )
 
 
 # _timeframe_to_candle_type
