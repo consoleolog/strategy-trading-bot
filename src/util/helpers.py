@@ -32,7 +32,7 @@ def parse_timeframe(timeframe: str) -> timedelta:
 # ============= Decorators =============
 
 
-def retry(max_retries: int = 3, delay: float = 1.0, exponential_backoff: bool = True) -> Callable:
+def retry(max_retries: int = 3, delay: float = 1.0, exponential_backoff: bool = True) -> Callable[[Callable], Callable]:
     """
     async 및 sync 함수에 재시도 로직을 적용하는 데코레이터.
 
@@ -60,7 +60,9 @@ def retry(max_retries: int = 3, delay: float = 1.0, exponential_backoff: bool = 
                     wait_time: float = delay * (2**attempt) if exponential_backoff else delay
                     logger.warning("⚠️ 재시도", attempt=attempt + 1, error=str(exception), wait_time=wait_time)
                     await asyncio.sleep(wait_time)
-            raise last_exception
+            if last_exception is not None:
+                raise last_exception
+            raise RuntimeError("max_retries 는 1 이상이어야 합니다.")
 
         @wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -73,7 +75,9 @@ def retry(max_retries: int = 3, delay: float = 1.0, exponential_backoff: bool = 
                     wait_time: float = delay * (2**attempt) if exponential_backoff else delay
                     logger.warning("⚠️ 재시도", attempt=attempt + 1, error=str(exception), wait_time=wait_time)
                     time.sleep(wait_time)
-            raise last_exception
+            if last_exception is not None:
+                raise last_exception
+            raise RuntimeError("max_retries 는 1 이상이어야 합니다.")
 
         return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
 
@@ -131,3 +135,48 @@ def rate_limit(calls: int = 10, period: float = 1.0) -> Callable[[Callable], Cal
         return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
 
     return decorator
+
+
+def measure_time(func: Callable) -> Callable:
+    """
+    함수의 실행 시간을 측정하여 로깅하는 데코레이터.
+
+    async 함수와 sync 함수 모두 지원한다.
+    소요 시간에 따라 μs, ms, s 단위로 자동 포맷팅한다.
+
+    Args:
+        func: 실행 시간을 측정할 대상 함수
+
+    Returns:
+        래핑된 함수 (async 또는 sync)
+    """
+
+    def format_elapsed(elapsed: float) -> str:
+        if elapsed < 0.001:
+            return f"{elapsed * 1000000:.2f} μs"
+        elif elapsed < 1:
+            return f"{elapsed * 1000:.2f} ms"
+        else:
+            return f"{elapsed:.4f} s"
+
+    @wraps(func)
+    async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+        start: float = time.perf_counter()
+        try:
+            result = await func(*args, **kwargs)
+            return result
+        finally:
+            elapsed: float = time.perf_counter() - start
+            logger.debug("⏳ 실행 시간", func=func.__name__, elapsed=format_elapsed(elapsed))
+
+    @wraps(func)
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+        start: float = time.perf_counter()
+        try:
+            result = func(*args, **kwargs)
+            return result
+        finally:
+            elapsed: float = time.perf_counter() - start
+            logger.debug("⏳ 실행 시간", func=func.__name__, elapsed=format_elapsed(elapsed))
+
+    return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper

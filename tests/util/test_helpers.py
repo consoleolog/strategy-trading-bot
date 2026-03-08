@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.util.constants import CandleType
-from src.util.helpers import parse_timeframe, rate_limit, retry
+from src.util.helpers import measure_time, parse_timeframe, rate_limit, retry
 
 # ---------------------------------------------------------------------------
 # 기본 포맷 — 단순 단위 문자열
@@ -545,3 +545,244 @@ def test_rate_limit_async_wraps_function_name():
         return 1
 
     assert my_async_function.__name__ == "my_async_function"
+
+
+# ---------------------------------------------------------------------------
+# retry — max_retries=0 edge case
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_retry_sync_zero_retries_raises_runtime_error():
+    """max_retries=0 이면 루프가 실행되지 않아 RuntimeError를 발생시킨다."""
+
+    @retry(max_retries=0, delay=0)
+    def func():
+        raise ValueError("실행되지 않음")
+
+    with pytest.raises(RuntimeError):
+        func()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_retry_async_zero_retries_raises_runtime_error():
+    """max_retries=0 이면 루프가 실행되지 않아 RuntimeError를 발생시킨다."""
+
+    @retry(max_retries=0, delay=0)
+    async def func():
+        raise ValueError("실행되지 않음")
+
+    with patch("asyncio.sleep", new_callable=AsyncMock), pytest.raises(RuntimeError):
+        await func()
+
+
+# ---------------------------------------------------------------------------
+# measure_time — sync
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_measure_time_sync_returns_sync_wrapper():
+    """sync 함수에는 sync 래퍼가 반환된다 (coroutine이 아님)."""
+
+    @measure_time
+    def func():
+        return 1
+
+    assert not asyncio.iscoroutinefunction(func)
+
+
+@pytest.mark.unit
+def test_measure_time_sync_returns_correct_value():
+    """sync 함수의 반환값이 그대로 전달된다."""
+
+    @measure_time
+    def func():
+        return {"result": 42}
+
+    assert func() == {"result": 42}
+
+
+@pytest.mark.unit
+def test_measure_time_sync_wraps_function_name():
+    """@wraps로 원래 함수 이름이 유지된다."""
+
+    @measure_time
+    def my_function():
+        return 1
+
+    assert my_function.__name__ == "my_function"
+
+
+@pytest.mark.unit
+def test_measure_time_sync_logs_debug():
+    """실행 후 logger.debug가 호출된다."""
+
+    @measure_time
+    def func():
+        return 1
+
+    with patch("src.util.helpers.logger") as mock_logger:
+        func()
+
+    mock_logger.debug.assert_called_once()
+    assert mock_logger.debug.call_args[0][0] == "⏳ 실행 시간"
+
+
+@pytest.mark.unit
+def test_measure_time_sync_propagates_exception():
+    """함수가 예외를 발생시키면 그대로 전파된다."""
+
+    @measure_time
+    def func():
+        raise ValueError("오류 발생")
+
+    with pytest.raises(ValueError, match="오류 발생"):
+        func()
+
+
+@pytest.mark.unit
+def test_measure_time_sync_logs_even_on_exception():
+    """예외 발생 시에도 실행 시간 로그가 기록된다 (finally 보장)."""
+
+    @measure_time
+    def func():
+        raise RuntimeError("실패")
+
+    with patch("src.util.helpers.logger") as mock_logger, pytest.raises(RuntimeError):
+        func()
+
+    mock_logger.debug.assert_called_once()
+    assert mock_logger.debug.call_args[0][0] == "⏳ 실행 시간"
+
+
+# ---------------------------------------------------------------------------
+# measure_time — async
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_measure_time_async_returns_async_wrapper():
+    """async 함수에는 async 래퍼가 반환된다."""
+
+    @measure_time
+    async def func():
+        return 1
+
+    assert asyncio.iscoroutinefunction(func)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_measure_time_async_returns_correct_value():
+    """async 함수의 반환값이 그대로 전달된다."""
+
+    @measure_time
+    async def func():
+        return {"result": 42}
+
+    assert await func() == {"result": 42}
+
+
+@pytest.mark.unit
+def test_measure_time_async_wraps_function_name():
+    """@wraps로 원래 함수 이름이 유지된다."""
+
+    @measure_time
+    async def my_async_function():
+        return 1
+
+    assert my_async_function.__name__ == "my_async_function"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_measure_time_async_logs_debug():
+    """실행 후 logger.debug가 호출된다."""
+
+    @measure_time
+    async def func():
+        return 1
+
+    with patch("src.util.helpers.logger") as mock_logger:
+        await func()
+
+    mock_logger.debug.assert_called_once()
+    assert mock_logger.debug.call_args[0][0] == "⏳ 실행 시간"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_measure_time_async_propagates_exception():
+    """async 함수가 예외를 발생시키면 그대로 전파된다."""
+
+    @measure_time
+    async def func():
+        raise ValueError("비동기 오류")
+
+    with pytest.raises(ValueError, match="비동기 오류"):
+        await func()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_measure_time_async_logs_even_on_exception():
+    """예외 발생 시에도 실행 시간 로그가 기록된다 (finally 보장)."""
+
+    @measure_time
+    async def func():
+        raise RuntimeError("비동기 실패")
+
+    with patch("src.util.helpers.logger") as mock_logger, pytest.raises(RuntimeError):
+        await func()
+
+    mock_logger.debug.assert_called_once()
+    assert mock_logger.debug.call_args[0][0] == "⏳ 실행 시간"
+
+
+# ---------------------------------------------------------------------------
+# measure_time — elapsed 포맷
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_measure_time_elapsed_microseconds():
+    """매우 빠른 함수는 μs 단위로 로깅된다."""
+
+    @measure_time
+    def func():
+        return 1
+
+    with patch("src.util.helpers.logger") as mock_logger:
+        func()
+        call_kwargs = mock_logger.debug.call_args[1]
+        assert "μs" in call_kwargs["elapsed"] or "ms" in call_kwargs["elapsed"] or "s" in call_kwargs["elapsed"]
+
+
+@pytest.mark.unit
+def test_measure_time_elapsed_seconds():
+    """1초 이상 걸리는 함수는 s 단위로 로깅된다."""
+
+    @measure_time
+    def func():
+        return 1
+
+    with patch("time.perf_counter", side_effect=[0.0, 1.5]), patch("src.util.helpers.logger") as mock_logger:
+        func()
+        call_kwargs = mock_logger.debug.call_args[1]
+        assert "s" in call_kwargs["elapsed"]
+
+
+@pytest.mark.unit
+def test_measure_time_elapsed_milliseconds():
+    """1ms~1s 사이는 ms 단위로 로깅된다."""
+
+    @measure_time
+    def func():
+        return 1
+
+    with patch("time.perf_counter", side_effect=[0.0, 0.05]), patch("src.util.helpers.logger") as mock_logger:
+        func()
+        call_kwargs = mock_logger.debug.call_args[1]
+        assert "ms" in call_kwargs["elapsed"]
