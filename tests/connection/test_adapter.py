@@ -1,4 +1,5 @@
 import hashlib
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import unquote, urlencode
 
@@ -6,6 +7,7 @@ import jwt
 import pytest
 from src.connection.adapter import UpbitAdapter
 from src.model import Candle, Order
+from src.model.asset import Asset
 from src.util.constants import (
     CandleType,
     OrderSide,
@@ -914,6 +916,134 @@ async def test_price_order_wrapper(adapter: UpbitAdapter):
             smp_type=None,
             identifier=None,
         )
+
+
+# ---------------------------------------------------------------------------
+# ACCOUNT OPERATIONS
+# ---------------------------------------------------------------------------
+
+_SAMPLE_ACCOUNTS_RAW = [
+    {
+        "currency": "KRW",
+        "balance": "1000000.0",
+        "locked": "0.0",
+        "avg_buy_price": "0",
+        "avg_buy_price_modified": False,
+        "unit_currency": "KRW",
+    },
+    {
+        "currency": "BTC",
+        "balance": "0.1",
+        "locked": "0.0",
+        "avg_buy_price": "50000000.0",
+        "avg_buy_price_modified": False,
+        "unit_currency": "KRW",
+    },
+]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_assets_success(adapter: UpbitAdapter):
+    """전체 자산 조회 성공 케이스"""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_ACCOUNTS_RAW) as mock_req:
+        result = await adapter.get_assets()
+
+    assert len(result) == 2
+    assert all(isinstance(a, Asset) for a in result)
+    assert result[0].currency == "KRW"
+    assert result[1].currency == "BTC"
+    mock_req.assert_awaited_once_with("GET", "/accounts", signed=True)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_assets_failure_returns_empty_list(adapter: UpbitAdapter):
+    """API 요청 실패 시 빈 리스트 반환"""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, side_effect=Exception("API Error")):
+        result = await adapter.get_assets()
+
+    assert result == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_asset_exists(adapter: UpbitAdapter):
+    """존재하는 통화의 자산 정보 조회"""
+    with patch.object(adapter, "get_assets", new_callable=AsyncMock) as mock_get_assets:
+        mock_get_assets.return_value = [Asset.from_dict(r) for r in _SAMPLE_ACCOUNTS_RAW]
+        result = await adapter.get_asset("BTC")
+
+    assert result is not None
+    assert result.currency == "BTC"
+    assert result.balance == Decimal("0.1")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_asset_not_exists(adapter: UpbitAdapter):
+    """존재하지 않는 통화 조회 시 None 반환"""
+    with patch.object(adapter, "get_assets", new_callable=AsyncMock) as mock_get_assets:
+        mock_get_assets.return_value = [Asset.from_dict(r) for r in _SAMPLE_ACCOUNTS_RAW]
+        result = await adapter.get_asset("ETH")
+
+    assert result is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_assets_empty_response(adapter: UpbitAdapter):
+    """빈 응답이면 빈 리스트를 반환한다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=[]):
+        result = await adapter.get_assets()
+
+    assert result == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_assets_asset_fields_mapped(adapter: UpbitAdapter):
+    """각 Asset의 balance, avg_buy_price가 Decimal로 올바르게 매핑된다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_ACCOUNTS_RAW):
+        result = await adapter.get_assets()
+
+    btc = next(a for a in result if a.currency == "BTC")
+    assert btc.balance == Decimal("0.1")
+    assert btc.avg_buy_price == Decimal("50000000.0")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_asset_calls_get_assets(adapter: UpbitAdapter):
+    """get_asset()은 내부적으로 get_assets()를 호출한다."""
+    with patch.object(adapter, "get_assets", new_callable=AsyncMock, return_value=[]) as mock_get:
+        await adapter.get_asset("KRW")
+
+    mock_get.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_asset_returns_first_match(adapter: UpbitAdapter):
+    """동일 currency가 여럿일 때 첫 번째 항목을 반환한다."""
+    duplicate_raw = [
+        *_SAMPLE_ACCOUNTS_RAW,
+        {
+            "currency": "KRW",
+            "balance": "999.0",
+            "locked": "0.0",
+            "avg_buy_price": "0",
+            "avg_buy_price_modified": False,
+            "unit_currency": "KRW",
+        },
+    ]
+    with patch.object(
+        adapter, "get_assets", new_callable=AsyncMock, return_value=[Asset.from_dict(r) for r in duplicate_raw]
+    ):
+        result = await adapter.get_asset("KRW")
+
+    assert result is not None
+    assert result.balance == Decimal("1000000.0")
 
 
 # _timeframe_to_candle_type

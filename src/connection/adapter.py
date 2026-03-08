@@ -7,7 +7,7 @@ import aiohttp
 import jwt
 import structlog
 
-from ..model import Candle, Order
+from ..model import Asset, Candle, Order
 from ..util.constants import CandleType, OrderSide, OrderType, SmpType, StreamType, Timeframe, TimeInForce
 from ..util.errors import error_handler
 
@@ -31,13 +31,13 @@ class UpbitAdapter:
     async def connect(self) -> None:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
-            logger.info("🔗 Connected to Upbit")
+            logger.info("🔗 업비트 연결됨")
 
     async def disconnect(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
-            logger.info("🔌 Disconnected from Upbit")
+            logger.info("🔌 업비트 연결 해제됨")
 
     async def _ensure_session(self) -> None:
         if self._session is None or self._session.closed:
@@ -353,3 +353,41 @@ class UpbitAdapter:
             smp_type=smp_type,
             identifier=identifier,
         )
+
+    # ========================================================================
+    # ACCOUNT OPERATIONS
+    # ========================================================================
+
+    async def get_assets(self) -> list[Asset]:
+        """
+        전체 계좌 조회 (GET /v1/accounts)
+
+        내가 보유한 모든 자산(디지털 자산 및 원화)의 잔고 목록을 조회합니다.
+
+        Returns:
+            list[Asset]: 보유 자산 목록
+        """
+        try:
+            response = await self._request("GET", "/accounts", signed=True)
+            return [Asset.from_dict(r) for r in response]
+        except Exception as error:
+            logger.exception("⚠️ 자산 조회 실패", error=str(error))
+            return []
+
+    async def get_asset(self, currency: str) -> Asset | None:
+        """
+        특정 통화의 자산 정보 조회
+
+        보유 자산 목록 중 특정 통화(예: KRW, BTC)의 잔고 정보를 반환합니다.
+
+        Args:
+            currency: 조회하고자 하는 통화 코드 (예: KRW, BTC)
+
+        Returns:
+            Asset | None: 해당 통화의 자산 정보. 보유하고 있지 않으면 None 반환.
+        """
+        assets = await self.get_assets()
+        for asset in assets:
+            if asset.currency == currency:
+                return asset
+        return None
