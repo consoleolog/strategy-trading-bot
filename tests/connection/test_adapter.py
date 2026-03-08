@@ -290,3 +290,229 @@ def test_sign_request_wrong_secret_raises(adapter: UpbitAdapter):
     token = adapter._sign_request()
     with pytest.raises(jwt.InvalidSignatureError):
         jwt.decode(token, "wrong-secret", algorithms=["HS256"])
+
+
+# ---------------------------------------------------------------------------
+# _request
+# ---------------------------------------------------------------------------
+
+
+def _make_api_response(data: object = None, status: int = 200) -> MagicMock:
+    """error_handler가 처리할 수 있는 aiohttp 응답 모의 객체를 생성한다."""
+    response = MagicMock()
+    response.status = status
+    response.json = AsyncMock(return_value=data if data is not None else {"ok": True})
+    response.text = AsyncMock(return_value="")
+    response.release = MagicMock()
+    return response
+
+
+@pytest.fixture
+def mock_session() -> MagicMock:
+    session = MagicMock()
+    session.closed = False
+    return session
+
+
+@pytest.fixture
+def connected_adapter(adapter: UpbitAdapter, mock_session: MagicMock) -> UpbitAdapter:
+    """세션이 연결된 상태의 adapter."""
+    adapter._session = mock_session
+    return adapter
+
+
+# GET
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_get_calls_session_get(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """GET 요청은 session.get()을 올바른 URL로 호출한다."""
+    response = _make_api_response()
+    mock_session.get = AsyncMock(return_value=response)
+
+    await connected_adapter._request("GET", "/markets")
+
+    mock_session.get.assert_awaited_once()
+    call_kwargs = mock_session.get.call_args
+    assert call_kwargs.args[0] == "https://api.upbit.com/v1/markets"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_get_passes_params(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """GET 요청은 params를 쿼리 파라미터로 전달한다."""
+    response = _make_api_response()
+    mock_session.get = AsyncMock(return_value=response)
+
+    await connected_adapter._request("GET", "/candles", params={"market": "KRW-BTC"})
+
+    _, kwargs = mock_session.get.call_args
+    assert kwargs["params"] == {"market": "KRW-BTC"}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_get_returns_json_data(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """GET 요청의 반환값은 error_handler가 파싱한 JSON 데이터다."""
+    data = [{"market": "KRW-BTC"}, {"market": "KRW-ETH"}]
+    mock_session.get = AsyncMock(return_value=_make_api_response(data))
+
+    result = await connected_adapter._request("GET", "/markets")
+
+    assert result == data
+
+
+# POST
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_post_calls_session_post(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """POST 요청은 session.post()를 올바른 URL로 호출한다."""
+    response = _make_api_response()
+    mock_session.post = AsyncMock(return_value=response)
+
+    await connected_adapter._request("POST", "/orders")
+
+    mock_session.post.assert_awaited_once()
+    call_kwargs = mock_session.post.call_args
+    assert call_kwargs.args[0] == "https://api.upbit.com/v1/orders"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_post_passes_params_as_json(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """POST 요청은 params를 json body로 전달한다."""
+    response = _make_api_response()
+    mock_session.post = AsyncMock(return_value=response)
+    body = {"market": "KRW-BTC", "side": "bid", "volume": "0.001"}
+
+    await connected_adapter._request("POST", "/orders", params=body)
+
+    _, kwargs = mock_session.post.call_args
+    assert kwargs["json"] == body
+
+
+# DELETE
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_delete_calls_session_delete(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """DELETE 요청은 session.delete()를 올바른 URL로 호출한다."""
+    response = _make_api_response()
+    mock_session.delete = AsyncMock(return_value=response)
+
+    await connected_adapter._request("DELETE", "/order", params={"uuid": "abc-123"})
+
+    mock_session.delete.assert_awaited_once()
+    call_kwargs = mock_session.delete.call_args
+    assert call_kwargs.args[0] == "https://api.upbit.com/v1/order"
+
+
+# 알 수 없는 메서드
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_unknown_method_raises_value_error(
+    connected_adapter: UpbitAdapter,
+):
+    """정의되지 않은 HTTP 메서드는 ValueError를 발생시킨다."""
+    with pytest.raises(ValueError, match="Unknown method"):
+        await connected_adapter._request("PATCH", "/something")
+
+
+# signed
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_signed_adds_authorization_header(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """signed=True이면 Authorization 헤더가 추가된다."""
+    response = _make_api_response()
+    mock_session.get = AsyncMock(return_value=response)
+
+    await connected_adapter._request("GET", "/accounts", signed=True)
+
+    _, kwargs = mock_session.get.call_args
+    assert "Authorization" in kwargs["headers"]
+    assert kwargs["headers"]["Authorization"].startswith("Bearer ")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_unsigned_has_no_authorization_header(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """signed=False이면 Authorization 헤더가 없다."""
+    response = _make_api_response()
+    mock_session.get = AsyncMock(return_value=response)
+
+    await connected_adapter._request("GET", "/markets", signed=False)
+
+    _, kwargs = mock_session.get.call_args
+    assert "Authorization" not in kwargs["headers"]
+
+
+# 기본값
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_none_params_defaults_to_empty_dict(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """params=None이면 빈 dict로 처리된다."""
+    response = _make_api_response()
+    mock_session.get = AsyncMock(return_value=response)
+
+    await connected_adapter._request("GET", "/markets", params=None)
+
+    _, kwargs = mock_session.get.call_args
+    assert kwargs["params"] == {}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_none_headers_defaults_to_empty_dict(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """headers=None이면 빈 dict로 처리된다."""
+    response = _make_api_response()
+    mock_session.get = AsyncMock(return_value=response)
+
+    await connected_adapter._request("GET", "/markets", headers=None)
+
+    _, kwargs = mock_session.get.call_args
+    assert isinstance(kwargs["headers"], dict)
+
+
+# ClientError
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_client_error_is_reraised(connected_adapter: UpbitAdapter, mock_session: MagicMock):
+    """aiohttp.ClientError 발생 시 예외가 그대로 전파된다."""
+    import aiohttp
+
+    mock_session.get = AsyncMock(side_effect=aiohttp.ClientError("연결 실패"))
+
+    with pytest.raises(aiohttp.ClientError):
+        await connected_adapter._request("GET", "/markets")
+
+
+# _ensure_session 호출 확인
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_request_calls_ensure_session(adapter: UpbitAdapter):
+    """_request()는 항상 _ensure_session()을 호출한다."""
+    response = _make_api_response()
+
+    with (
+        patch.object(adapter, "_ensure_session", new_callable=AsyncMock) as mock_ensure,
+        patch.object(adapter, "_session") as mock_session,
+    ):
+        mock_session.closed = False
+        mock_session.get = AsyncMock(return_value=response)
+        await adapter._request("GET", "/markets")
+
+    mock_ensure.assert_awaited_once()

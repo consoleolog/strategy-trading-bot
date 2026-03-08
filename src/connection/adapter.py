@@ -6,6 +6,8 @@ import aiohttp
 import jwt
 import structlog
 
+from ..util.errors import error_handler
+
 logger = structlog.get_logger(__name__)
 
 
@@ -57,3 +59,29 @@ class UpbitAdapter:
             payload["query_hash_alg"] = "SHA512"
 
         return jwt.encode(payload, self.api_secret, algorithm="HS256")
+
+    @error_handler
+    async def _request(
+        self, method: str, endpoint: str, params: dict | None = None, headers: dict | None = None, signed: bool = False
+    ) -> aiohttp.client.ClientResponse:
+        await self._ensure_session()
+
+        params = params or {}
+        headers = headers or {}
+        if signed:
+            headers["Authorization"] = f"Bearer {self._sign_request(params)}"
+
+        url = f"{self.base_url}{endpoint}"
+
+        try:
+            if method == "GET":
+                return await self._session.get(url, headers=headers, params=params)
+            elif method == "POST":
+                return await self._session.post(url, headers=headers, json=params)
+            elif method == "DELETE":
+                return await self._session.delete(url, headers=headers, params=params)
+            else:
+                raise ValueError(f"Unknown method: {method}")
+        except aiohttp.ClientError as error:
+            logger.exception("❌ 요청 실패", error=str(error))
+            raise
