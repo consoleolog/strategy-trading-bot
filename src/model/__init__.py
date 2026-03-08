@@ -1,3 +1,4 @@
+from .asset import Asset
 from .candle import Candle
 from .decision import Decision
 from .execution_result import ExecutionResult
@@ -10,6 +11,7 @@ from .trade import Trade
 from .trade_candidate import TradeCandidate
 
 __all__ = [
+    "Asset",
     "Candle",
     "Decision",
     "ExecutionResult",
