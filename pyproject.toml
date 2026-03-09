@@ -21,7 +21,9 @@ dependencies = [
     "structlog>=25.5.0", # 구조화된 로깅 라이브러리
     # --- 기술적 분석 ---
     "ta-lib>=0.6.8", # 이동평균, RSI, 볼린저밴드 등 기술적 지표
-    "numpy>=2.2.6",      # 수치 연산 및 배열 처리
+    "numpy>=2.2.6", # 수치 연산 및 배열 처리
+    # --- API 서버 ---
+    "uvicorn[standard]>=0.41.0", # ASGI 서버 (uvloop + httptools 포함)
 ]
 
 [dependency-groups]
