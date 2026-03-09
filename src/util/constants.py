@@ -342,3 +342,31 @@ class ExecutionState(Enum):
     CANCELLED = "CANCELLED"
     REJECTED = "REJECTED"
     FAILED = "FAILED"
+
+
+# =============================================================================
+# Strategy Enum
+# =============================================================================
+
+
+class MarketRegime(Enum):
+    """
+    이동평균선(단기/중기/장기) 배열로 판단하는 시장 국면
+
+    Attributes:
+        STABLE_BULL: 안정 상승장 — short > middle > long (정배열 완성)
+        END_OF_BULL: 상승장 말기 — middle > short > long (단기선 꺾임)
+        START_OF_BEAR: 하락장 초기 — middle > long > short (단기선 장기선 하향 이탈)
+        STABLE_BEAR: 안정 하락장 — long > middle > short (역배열 완성)
+        END_OF_BEAR: 하락장 말기 — long > short > middle (단기선 반등)
+        START_OF_BULL: 상승장 초기 — short > long > middle (단기선 장기선 상향 돌파)
+        UNKNOWN: 판단 불가 — 데이터 부족 또는 정의되지 않은 배열
+    """
+
+    STABLE_BULL = 1  # short > middle > long
+    END_OF_BULL = 2  # middle > short > long
+    START_OF_BEAR = 3  # middle > long > short
+    STABLE_BEAR = 4  # long > middle > short
+    END_OF_BEAR = 5  # long > short > middle
+    START_OF_BULL = 6  # short > long > middle
+    UNKNOWN = 0
