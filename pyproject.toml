@@ -24,6 +24,7 @@ dependencies = [
     "numpy>=2.2.6", # 수치 연산 및 배열 처리
     # --- API 서버 ---
     "uvicorn[standard]>=0.41.0", # ASGI 서버 (uvloop + httptools 포함)
+    "fastapi>=0.135.1",              # API 라우터, 요청/응답 검증, Swagger 자동 생성
 ]
 
 [dependency-groups]
