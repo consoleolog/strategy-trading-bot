@@ -401,3 +401,12 @@ class UpbitAdapter:
             if asset.currency == currency:
                 return asset
         return None
+
+    async def get_krw(self) -> Asset | None:
+        """
+        KRW(원화) 자산 정보 조회
+
+        Returns:
+            Asset | None: KRW 자산 정보. 보유하고 있지 않으면 None 반환.
+        """
+        return await self.get_asset("KRW")
