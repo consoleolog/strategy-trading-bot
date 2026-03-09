@@ -10,6 +10,7 @@ import structlog
 from ..model import Asset, Candle, Order
 from ..util.constants import CandleType, OrderSide, OrderType, SmpType, StreamType, Timeframe, TimeInForce
 from ..util.errors import error_handler
+from ..util.helpers import measure_time, rate_limit, retry
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +94,9 @@ class UpbitAdapter:
     # CANDLE DATA
     # ========================================================================
 
+    @measure_time
+    @retry(max_retries=5, delay=1.0)
+    @rate_limit(calls=10, period=1.0)
     async def get_candles(
         self, market: str, timeframe: Timeframe = Timeframe.DAY, count: int = 200, to: str | None = None
     ) -> list[Candle]:
@@ -154,6 +158,9 @@ class UpbitAdapter:
     # ORDER OPERATIONS
     # ========================================================================
 
+    @measure_time
+    @retry(max_retries=2, delay=1.0)
+    @rate_limit(calls=8, period=1.0)
     async def create_order(
         self,
         market: str,
@@ -358,6 +365,9 @@ class UpbitAdapter:
     # ACCOUNT OPERATIONS
     # ========================================================================
 
+    @measure_time
+    @retry(max_retries=3, delay=1.0)
+    @rate_limit(calls=30, period=1.0)
     async def get_assets(self) -> list[Asset]:
         """
         전체 계좌 조회 (GET /v1/accounts)
