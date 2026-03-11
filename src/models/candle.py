@@ -4,10 +4,11 @@ from decimal import Decimal
 
 from ..utils.constants import CandleType, StreamType
 from ..utils.helpers import parse_timeframe
+from .base import Base
 
 
 @dataclass
-class Candle:
+class Candle(Base):
     """
     업비트 WebSocket 캔들(Candle) 응답 데이터 모델
 
@@ -62,48 +63,9 @@ class Candle:
         if isinstance(self.stream_type, str):
             self.stream_type = StreamType(self.stream_type)
 
-    @classmethod
-    def from_dict(cls, data: dict) -> "Candle":
-        """딕셔너리 데이터를 Candle 객체로 변환합니다."""
-        return cls(
-            type=data.get("type"),
-            code=data.get("code"),
-            candle_date_time_utc=data.get("candle_date_time_utc"),
-            candle_date_time_kst=data.get("candle_date_time_kst"),
-            opening_price=data.get("opening_price"),
-            high_price=data.get("high_price"),
-            low_price=data.get("low_price"),
-            trade_price=data.get("trade_price"),
-            candle_acc_trade_volume=data.get("candle_acc_trade_volume"),
-            candle_acc_trade_price=data.get("candle_acc_trade_price"),
-            timestamp=data.get("timestamp"),
-            stream_type=data.get("stream_type"),
-        )
-
     @property
     def is_closed(self) -> bool:
-        """캔들 기간이 종료되었는지 여부를 반환합니다.
-
-        업비트 WebSocket은 is_closed 필드를 제공하지 않으므로,
-        candle_date_time_utc + interval <= 현재 UTC 시각으로 판단합니다.
-        """
+        """캔들 기간이 종료되었는지 여부를 반환합니다."""
         candle_close_time = self.candle_date_time_utc + parse_timeframe(self.type.value)
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         return now_utc >= candle_close_time
-
-    def to_dict(self) -> dict:
-        """Candle 객체를 딕셔너리로 변환합니다."""
-        return {
-            "type": self.type,
-            "code": self.code,
-            "candle_date_time_utc": self.candle_date_time_utc,
-            "candle_date_time_kst": self.candle_date_time_kst,
-            "opening_price": self.opening_price,
-            "high_price": self.high_price,
-            "low_price": self.low_price,
-            "trade_price": self.trade_price,
-            "candle_acc_trade_volume": self.candle_acc_trade_volume,
-            "candle_acc_trade_price": self.candle_acc_trade_price,
-            "timestamp": self.timestamp,
-            "stream_type": self.stream_type,
-        }

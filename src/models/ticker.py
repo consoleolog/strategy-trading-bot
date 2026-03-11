@@ -3,10 +3,11 @@ from datetime import datetime
 from decimal import Decimal
 
 from ..utils.constants import AskBid, ChangeDirection, MarketState, StreamType
+from .base import Base
 
 
 @dataclass
-class Ticker:
+class Ticker(Base):
     """
     업비트 WebSocket 현재가(Ticker) 응답 데이터 모델
 
@@ -119,74 +120,3 @@ class Ticker:
             self.market_state = MarketState(self.market_state)
         if isinstance(self.stream_type, str):
             self.stream_type = StreamType(self.stream_type)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Ticker":
-        """딕셔너리 데이터를 Ticker 객체로 변환합니다."""
-        return cls(
-            type=data.get("type"),
-            code=data.get("code"),
-            opening_price=data.get("opening_price"),
-            high_price=data.get("high_price"),
-            low_price=data.get("low_price"),
-            trade_price=data.get("trade_price"),
-            prev_closing_price=data.get("prev_closing_price"),
-            change=data.get("change"),
-            change_price=data.get("change_price"),
-            signed_change_price=data.get("signed_change_price"),
-            change_rate=data.get("change_rate"),
-            signed_change_rate=data.get("signed_change_rate"),
-            trade_volume=data.get("trade_volume"),
-            acc_trade_volume=data.get("acc_trade_volume"),
-            acc_trade_volume_24h=data.get("acc_trade_volume_24h"),
-            acc_trade_price=data.get("acc_trade_price"),
-            acc_trade_price_24h=data.get("acc_trade_price_24h"),
-            trade_date=data.get("trade_date"),
-            trade_time=data.get("trade_time"),
-            trade_timestamp=data.get("trade_timestamp"),
-            ask_bid=data.get("ask_bid"),
-            acc_ask_volume=data.get("acc_ask_volume"),
-            acc_bid_volume=data.get("acc_bid_volume"),
-            highest_52_week_price=data.get("highest_52_week_price"),
-            highest_52_week_date=data.get("highest_52_week_date"),
-            lowest_52_week_price=data.get("lowest_52_week_price"),
-            lowest_52_week_date=data.get("lowest_52_week_date"),
-            market_state=data.get("market_state"),
-            timestamp=data.get("timestamp"),
-            stream_type=data.get("stream_type"),
-        )
-
-    def to_dict(self) -> dict:
-        """Ticker 객체를 딕셔너리로 변환합니다."""
-        return {
-            "type": self.type,
-            "code": self.code,
-            "opening_price": self.opening_price,
-            "high_price": self.high_price,
-            "low_price": self.low_price,
-            "trade_price": self.trade_price,
-            "prev_closing_price": self.prev_closing_price,
-            "change": self.change,
-            "change_price": self.change_price,
-            "signed_change_price": self.signed_change_price,
-            "change_rate": self.change_rate,
-            "signed_change_rate": self.signed_change_rate,
-            "trade_volume": self.trade_volume,
-            "acc_trade_volume": self.acc_trade_volume,
-            "acc_trade_volume_24h": self.acc_trade_volume_24h,
-            "acc_trade_price": self.acc_trade_price,
-            "acc_trade_price_24h": self.acc_trade_price_24h,
-            "trade_date": self.trade_date,
-            "trade_time": self.trade_time,
-            "trade_timestamp": self.trade_timestamp,
-            "ask_bid": self.ask_bid,
-            "acc_ask_volume": self.acc_ask_volume,
-            "acc_bid_volume": self.acc_bid_volume,
-            "highest_52_week_price": self.highest_52_week_price,
-            "highest_52_week_date": self.highest_52_week_date,
-            "lowest_52_week_price": self.lowest_52_week_price,
-            "lowest_52_week_date": self.lowest_52_week_date,
-            "market_state": self.market_state,
-            "timestamp": self.timestamp,
-            "stream_type": self.stream_type,
-        }

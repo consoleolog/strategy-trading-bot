@@ -4,10 +4,11 @@ from decimal import Decimal
 from uuid import UUID
 
 from ..utils.constants import ExecutionState
+from .base import Base
 
 
 @dataclass
-class ExecutionResult:
+class ExecutionResult(Base):
     """
     주문 실행 결과 모델
 
@@ -51,34 +52,3 @@ class ExecutionResult:
 
         if isinstance(self.timestamp, str):
             self.timestamp = datetime.fromisoformat(self.timestamp)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "ExecutionResult":
-        """딕셔너리 데이터를 ExecutionResult 객체로 변환합니다."""
-        return cls(
-            success=data.get("success"),
-            decision_id=data.get("decision_id"),
-            order_uuid=data.get("order_uuid"),
-            filled_quantity=data.get("filled_quantity"),
-            average_price=data.get("average_price"),
-            fee=data.get("fee"),
-            fee_asset=data.get("fee_asset", "KRW"),
-            state=data.get("state", ExecutionState.PENDING),
-            error_message=data.get("error_message"),
-            timestamp=data.get("timestamp", datetime.now()),
-        )
-
-    def to_dict(self) -> dict:
-        """ExecutionResult 객체를 딕셔너리로 변환합니다."""
-        return {
-            "success": self.success,
-            "decision_id": self.decision_id,
-            "order_uuid": self.order_uuid,
-            "filled_quantity": self.filled_quantity,
-            "average_price": self.average_price,
-            "fee": self.fee,
-            "fee_asset": self.fee_asset,
-            "state": self.state,
-            "error_message": self.error_message,
-            "timestamp": self.timestamp,
-        }

@@ -2,11 +2,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
+from .base import Base
 from .position import Position
 
 
 @dataclass
-class PortfolioState:
+class PortfolioState(Base):
     """
     포트폴리오 전체 상태 스냅샷 모델
 
@@ -49,35 +50,6 @@ class PortfolioState:
             self.last_updated = datetime.fromisoformat(self.last_updated)
 
         self.positions = {k: Position.from_dict(v) if isinstance(v, dict) else v for k, v in self.positions.items()}
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "PortfolioState":
-        """딕셔너리 데이터를 PortfolioState 객체로 변환합니다."""
-        return cls(
-            total_capital=data.get("total_capital"),
-            available_capital=data.get("available_capital"),
-            daily_pnl=data.get("daily_pnl"),
-            weekly_pnl=data.get("weekly_pnl"),
-            total_pnl=data.get("total_pnl"),
-            high_water_mark=data.get("high_water_mark"),
-            trade_count_today=data.get("trade_count_today", 0),
-            last_updated=data.get("last_updated", datetime.now()),
-            positions=data.get("positions", {}),
-        )
-
-    def to_dict(self) -> dict:
-        """PortfolioState 객체를 딕셔너리로 변환합니다."""
-        return {
-            "total_capital": self.total_capital,
-            "available_capital": self.available_capital,
-            "daily_pnl": self.daily_pnl,
-            "weekly_pnl": self.weekly_pnl,
-            "total_pnl": self.total_pnl,
-            "high_water_mark": self.high_water_mark,
-            "trade_count_today": self.trade_count_today,
-            "last_updated": self.last_updated,
-            "positions": {k: v.to_dict() for k, v in self.positions.items()},
-        }
 
     @property
     def current_drawdown(self) -> float:

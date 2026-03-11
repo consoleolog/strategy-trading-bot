@@ -265,25 +265,25 @@ def test_to_dict_has_all_keys():
 
 @pytest.mark.unit
 def test_to_dict_type_is_candle_type_enum():
-    """to_dict()의 type 필드는 CandleType enum이다."""
+    """to_dict()의 type 필드는 Enum .value 문자열로 반환된다."""
     candle = Candle.from_dict(SAMPLE_DICT)
-    assert candle.to_dict()["type"] == CandleType.SECOND
+    assert candle.to_dict()["type"] == CandleType.SECOND.value
 
 
 @pytest.mark.unit
 def test_to_dict_stream_type_is_stream_type_enum():
-    """to_dict()의 stream_type 필드는 StreamType enum이다."""
+    """to_dict()의 stream_type 필드는 Enum .value 문자열로 반환된다."""
     candle = Candle.from_dict(SAMPLE_DICT)
-    assert candle.to_dict()["stream_type"] == StreamType.REALTIME
+    assert candle.to_dict()["stream_type"] == StreamType.REALTIME.value
 
 
 @pytest.mark.unit
 def test_to_dict_datetime_fields_are_datetime_type():
-    """to_dict()의 candle_date_time 필드는 datetime 타입으로 반환된다."""
+    """to_dict()의 candle_date_time 필드는 ISO 8601 문자열로 반환된다."""
     candle = Candle.from_dict(SAMPLE_DICT)
     result = candle.to_dict()
-    assert isinstance(result["candle_date_time_utc"], datetime)
-    assert isinstance(result["candle_date_time_kst"], datetime)
+    assert isinstance(result["candle_date_time_utc"], str)
+    assert isinstance(result["candle_date_time_kst"], str)
 
 
 @pytest.mark.unit

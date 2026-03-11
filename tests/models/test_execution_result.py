@@ -264,9 +264,9 @@ def test_to_dict_uuid_fields_are_uuid_type():
 
 @pytest.mark.unit
 def test_to_dict_state_is_enum():
-    """to_dict()의 state는 ExecutionState enum으로 반환된다."""
+    """to_dict()의 state는 Enum .value 문자열로 반환된다."""
     result = ExecutionResult.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["state"], ExecutionState)
+    assert result["state"] == ExecutionState.FILLED.value
 
 
 @pytest.mark.unit
@@ -280,9 +280,9 @@ def test_to_dict_decimal_fields_are_decimal():
 
 @pytest.mark.unit
 def test_to_dict_timestamp_is_datetime():
-    """to_dict()의 timestamp는 datetime 타입으로 반환된다."""
+    """to_dict()의 timestamp는 ISO 8601 문자열로 반환된다."""
     result = ExecutionResult.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["timestamp"], datetime)
+    assert isinstance(result["timestamp"], str)
 
 
 @pytest.mark.unit

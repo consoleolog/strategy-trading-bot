@@ -4,10 +4,11 @@ from decimal import Decimal
 from uuid import UUID
 
 from ..utils.constants import OrderSide
+from .base import Base
 
 
 @dataclass
-class Trade:
+class Trade(Base):
     """
     체결된 거래(Trade) 기록 모델
 
@@ -55,39 +56,6 @@ class Trade:
 
         if isinstance(self.timestamp, str):
             self.timestamp = datetime.fromisoformat(self.timestamp)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Trade":
-        """딕셔너리 데이터를 Trade 객체로 변환합니다."""
-        return cls(
-            trade_id=data.get("trade_id"),
-            market=data.get("market"),
-            side=data.get("side"),
-            volume=data.get("volume"),
-            price=data.get("price"),
-            strategy_id=data.get("strategy_id"),
-            order_uuid=data.get("order_uuid"),
-            fee=data.get("fee"),
-            fee_asset=data.get("fee_asset", "KRW"),
-            decision_id=data.get("decision_id"),
-            timestamp=data.get("timestamp", datetime.now()),
-        )
-
-    def to_dict(self) -> dict:
-        """Trade 객체를 딕셔너리로 변환합니다."""
-        return {
-            "trade_id": self.trade_id,
-            "market": self.market,
-            "side": self.side,
-            "volume": self.volume,
-            "price": self.price,
-            "strategy_id": self.strategy_id,
-            "order_uuid": self.order_uuid,
-            "fee": self.fee,
-            "fee_asset": self.fee_asset,
-            "decision_id": self.decision_id,
-            "timestamp": self.timestamp,
-        }
 
     @property
     def value(self) -> Decimal:

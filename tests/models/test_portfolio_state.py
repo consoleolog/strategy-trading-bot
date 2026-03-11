@@ -297,9 +297,9 @@ def test_to_dict_decimal_fields_are_decimal():
 
 @pytest.mark.unit
 def test_to_dict_last_updated_is_datetime():
-    """to_dict()의 last_updated는 datetime 타입으로 반환된다."""
+    """to_dict()의 last_updated는 ISO 8601 문자열로 반환된다."""
     result = PortfolioState.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["last_updated"], datetime)
+    assert isinstance(result["last_updated"], str)
 
 
 @pytest.mark.unit

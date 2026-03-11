@@ -240,9 +240,9 @@ def test_to_dict_has_all_keys():
 
 @pytest.mark.unit
 def test_to_dict_direction_is_enum():
-    """to_dict()의 direction은 SignalDirection enum으로 반환된다."""
+    """to_dict()의 direction은 Enum .value 문자열로 반환된다."""
     result = Position.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["direction"], SignalDirection)
+    assert result["direction"] == SignalDirection.LONG.value
 
 
 @pytest.mark.unit
@@ -255,9 +255,9 @@ def test_to_dict_decimal_fields_are_decimal():
 
 @pytest.mark.unit
 def test_to_dict_opened_at_is_datetime():
-    """to_dict()의 opened_at은 datetime 타입으로 반환된다."""
+    """to_dict()의 opened_at은 ISO 8601 문자열로 반환된다."""
     result = Position.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["opened_at"], datetime)
+    assert isinstance(result["opened_at"], str)
 
 
 @pytest.mark.unit

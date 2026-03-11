@@ -291,10 +291,10 @@ def test_to_dict_decision_id_is_uuid():
 
 @pytest.mark.unit
 def test_to_dict_enum_fields_are_enum_type():
-    """to_dict()의 enum 필드는 enum 타입으로 반환된다."""
+    """to_dict()의 enum 필드는 Enum .value 문자열로 반환된다."""
     result = Decision.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["direction"], SignalDirection)
-    assert isinstance(result["state"], DecisionState)
+    assert result["direction"] == SignalDirection.LONG.value
+    assert result["state"] == DecisionState.PENDING.value
 
 
 @pytest.mark.unit

@@ -4,10 +4,11 @@ from decimal import Decimal
 from uuid import UUID
 
 from ..utils.constants import OrderSide, OrderState, OrderType, SmpType, TimeInForce
+from .base import Base
 
 
 @dataclass
-class Order:
+class Order(Base):
     """
     업비트 주문(Order) 응답 데이터 모델
 
@@ -49,11 +50,11 @@ class Order:
     remaining_fee: Decimal
     paid_fee: Decimal
     locked: Decimal
-    identifier: str | None
-    time_in_force: TimeInForce | None
-    smp_type: SmpType | None
-    prevented_volume: Decimal | None
-    prevented_locked: Decimal | None
+    identifier: str | None = None
+    time_in_force: TimeInForce | None = None
+    smp_type: SmpType | None = None
+    prevented_volume: Decimal | None = None
+    prevented_locked: Decimal | None = None
 
     def __post_init__(self):
         for field_name in [
@@ -89,54 +90,3 @@ class Order:
             self.time_in_force = TimeInForce(self.time_in_force)
         if isinstance(self.smp_type, str):
             self.smp_type = SmpType(self.smp_type)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Order":
-        """딕셔너리 데이터를 Order 객체로 변환합니다."""
-        return cls(
-            uuid=data.get("uuid"),
-            side=data.get("side"),
-            ord_type=data.get("ord_type"),
-            price=data.get("price"),
-            state=data.get("state"),
-            market=data.get("market"),
-            created_at=data.get("created_at"),
-            volume=data.get("volume"),
-            remaining_volume=data.get("remaining_volume"),
-            executed_volume=data.get("executed_volume"),
-            trades_count=data.get("trades_count"),
-            reserved_fee=data.get("reserved_fee"),
-            remaining_fee=data.get("remaining_fee"),
-            paid_fee=data.get("paid_fee"),
-            locked=data.get("locked"),
-            identifier=data.get("identifier"),
-            time_in_force=data.get("time_in_force"),
-            smp_type=data.get("smp_type"),
-            prevented_volume=data.get("prevented_volume"),
-            prevented_locked=data.get("prevented_locked"),
-        )
-
-    def to_dict(self) -> dict:
-        """Order 객체를 딕셔너리로 변환합니다."""
-        return {
-            "uuid": self.uuid,
-            "side": self.side,
-            "ord_type": self.ord_type,
-            "price": self.price,
-            "state": self.state,
-            "market": self.market,
-            "created_at": self.created_at,
-            "volume": self.volume,
-            "remaining_volume": self.remaining_volume,
-            "executed_volume": self.executed_volume,
-            "trades_count": self.trades_count,
-            "reserved_fee": self.reserved_fee,
-            "remaining_fee": self.remaining_fee,
-            "paid_fee": self.paid_fee,
-            "locked": self.locked,
-            "identifier": self.identifier,
-            "time_in_force": self.time_in_force,
-            "smp_type": self.smp_type,
-            "prevented_volume": self.prevented_volume,
-            "prevented_locked": self.prevented_locked,
-        }

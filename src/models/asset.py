@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from .base import Base
+
 
 @dataclass
-class Asset:
+class Asset(Base):
     """
     계정이 보유하고 있는 자산 목록과 잔고
 
@@ -30,26 +32,3 @@ class Asset:
             value = getattr(self, field_name)
             if isinstance(value, (int, float, str)):
                 setattr(self, field_name, Decimal(str(value)))
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Asset":
-        """딕셔너리 데이터를 Asset 객체로 변환합니다."""
-        return cls(
-            currency=data.get("currency"),
-            balance=data.get("balance"),
-            locked=data.get("locked"),
-            avg_buy_price=data.get("avg_buy_price"),
-            avg_buy_price_modified=data.get("avg_buy_price_modified"),
-            unit_currency=data.get("unit_currency"),
-        )
-
-    def to_dict(self) -> dict:
-        """Asset 객체를 딕셔너리로 변환합니다."""
-        return {
-            "currency": self.currency,
-            "balance": self.balance,
-            "locked": self.locked,
-            "avg_buy_price": self.avg_buy_price,
-            "avg_buy_price_modified": self.avg_buy_price_modified,
-            "unit_currency": self.unit_currency,
-        }

@@ -3,11 +3,12 @@ from datetime import datetime
 from decimal import Decimal
 
 from ..utils.constants import SignalDirection
+from .base import Base
 from .signal import Signal
 
 
 @dataclass
-class TradeCandidate:
+class TradeCandidate(Base):
     """
     여러 시그널을 종합하여 생성된 거래 후보(TradeCandidate) 모델
 
@@ -44,28 +45,3 @@ class TradeCandidate:
         self.contributing_signals = [
             Signal.from_dict(s) if isinstance(s, dict) else s for s in self.contributing_signals
         ]
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "TradeCandidate":
-        """딕셔너리 데이터를 TradeCandidate 객체로 변환합니다."""
-        return cls(
-            market=data.get("market"),
-            direction=data.get("direction"),
-            contributing_signals=data.get("contributing_signals", []),
-            suggested_entry=data.get("suggested_entry"),
-            suggested_stop_loss=data.get("suggested_stop_loss"),
-            suggested_take_profit=data.get("suggested_take_profit"),
-            timestamp=data.get("timestamp", datetime.now()),
-        )
-
-    def to_dict(self) -> dict:
-        """TradeCandidate 객체를 딕셔너리로 변환합니다."""
-        return {
-            "market": self.market,
-            "direction": self.direction,
-            "contributing_signals": [s.to_dict() for s in self.contributing_signals],
-            "suggested_entry": self.suggested_entry,
-            "suggested_stop_loss": self.suggested_stop_loss,
-            "suggested_take_profit": self.suggested_take_profit,
-            "timestamp": self.timestamp,
-        }

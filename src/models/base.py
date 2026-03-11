@@ -37,6 +37,8 @@ class Base:
                 data[f.name] = value.isoformat()
             elif isinstance(value, list):
                 data[f.name] = [item.to_dict() if hasattr(item, "to_dict") else item for item in value]
+            elif isinstance(value, dict):
+                data[f.name] = {k: v.to_dict() if hasattr(v, "to_dict") else v for k, v in value.items()}
             else:
                 data[f.name] = value
         return data
@@ -65,17 +67,27 @@ class Base:
         Returns:
             역직렬화된 클래스 인스턴스.
         """
+        _missing = object()
         hints = get_type_hints(cls)
         kwargs = {}
         for f in fields(cast(Any, cls)):
-            value = data.get(f.name)
+            raw = data.get(f.name, _missing)
+            if raw is _missing:
+                continue  # 키 없음 → dataclass 기본값 사용
+            value = raw
             field_type = hints.get(f.name)
             if value is None:
                 kwargs[f.name] = value
             elif hasattr(field_type, "from_dict"):
                 kwargs[f.name] = field_type.from_dict(value)
             elif field_type is datetime.datetime:
-                kwargs[f.name] = datetime.datetime.fromisoformat(value) if isinstance(value, str) else value
+                if isinstance(value, str):
+                    try:
+                        kwargs[f.name] = datetime.datetime.fromisoformat(value)
+                    except ValueError:
+                        kwargs[f.name] = value  # 비ISO 포맷은 __post_init__에서 처리
+                else:
+                    kwargs[f.name] = value
             elif field_type is datetime.date:
                 kwargs[f.name] = datetime.date.fromisoformat(value) if isinstance(value, str) else value
             elif isinstance(field_type, type) and issubclass(field_type, Enum):

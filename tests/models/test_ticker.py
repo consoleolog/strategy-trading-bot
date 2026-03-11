@@ -335,28 +335,28 @@ def test_to_dict_has_all_keys():
 
 @pytest.mark.unit
 def test_to_dict_enum_fields_are_enum_type():
-    """to_dict()의 enum 필드는 enum 타입으로 반환된다."""
+    """to_dict()의 enum 필드는 Enum .value 문자열로 반환된다."""
     result = Ticker.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["change"], ChangeDirection)
-    assert isinstance(result["ask_bid"], AskBid)
-    assert isinstance(result["market_state"], MarketState)
-    assert isinstance(result["stream_type"], StreamType)
+    assert result["change"] == ChangeDirection.RISE.value
+    assert result["ask_bid"] == AskBid.ASK.value
+    assert result["market_state"] == MarketState.ACTIVE.value
+    assert result["stream_type"] == StreamType.REALTIME.value
 
 
 @pytest.mark.unit
 def test_to_dict_datetime_fields_are_datetime_type():
-    """to_dict()의 필수 datetime 필드는 datetime 타입으로 반환된다."""
+    """to_dict()의 필수 datetime 필드는 ISO 8601 문자열로 반환된다."""
     result = Ticker.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["trade_date"], datetime)
-    assert isinstance(result["trade_time"], datetime)
+    assert isinstance(result["trade_date"], str)
+    assert isinstance(result["trade_time"], str)
 
 
 @pytest.mark.unit
 def test_to_dict_optional_datetime_fields_when_present():
-    """to_dict()의 52주 datetime 필드는 값이 있을 때 datetime 타입으로 반환된다."""
+    """to_dict()의 52주 datetime 필드는 값이 있을 때 ISO 8601 문자열로 반환된다."""
     result = Ticker.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["highest_52_week_date"], datetime)
-    assert isinstance(result["lowest_52_week_date"], datetime)
+    assert isinstance(result["highest_52_week_date"], str)
+    assert isinstance(result["lowest_52_week_date"], str)
 
 
 @pytest.mark.unit

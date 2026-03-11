@@ -3,11 +3,12 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from ..utils.constants import DecisionState, SignalDirection
+from .base import Base
 from .signal import Signal
 
 
 @dataclass
-class Decision:
+class Decision(Base):
     """
     전략 실행 결정(Decision) 모델
 
@@ -25,7 +26,6 @@ class Decision:
         state (DecisionState): 결정 상태 (PENDING, APPROVED, REJECTED, EXECUTED, CANCELLED)
     """
 
-    decision_id: UUID
     market: str
     direction: SignalDirection
     volume: Decimal
@@ -36,6 +36,7 @@ class Decision:
     risk_percent: float = 0.0
     contributing_signals: list[Signal] = field(default_factory=list)
     state: DecisionState = DecisionState.PENDING
+    decision_id: UUID = field(default_factory=uuid4)
 
     def __post_init__(self):
         if isinstance(self.decision_id, str):
@@ -55,36 +56,3 @@ class Decision:
         self.contributing_signals = [
             Signal.from_dict(s) if isinstance(s, dict) else s for s in self.contributing_signals
         ]
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Decision":
-        """딕셔너리 데이터를 Decision 객체로 변환합니다."""
-        return cls(
-            decision_id=data.get("decision_id", uuid4()),
-            market=data.get("market"),
-            direction=data.get("direction"),
-            volume=data.get("volume"),
-            entry_price=data.get("entry_price"),
-            stop_loss=data.get("stop_loss"),
-            take_profit=data.get("take_profit"),
-            risk_amount=data.get("risk_amount"),
-            risk_percent=data.get("risk_percent", 0.0),
-            contributing_signals=data.get("contributing_signals", []),
-            state=data.get("state", DecisionState.PENDING),
-        )
-
-    def to_dict(self) -> dict:
-        """Decision 객체를 딕셔너리로 변환합니다."""
-        return {
-            "decision_id": self.decision_id,
-            "market": self.market,
-            "direction": self.direction,
-            "volume": self.volume,
-            "entry_price": self.entry_price,
-            "stop_loss": self.stop_loss,
-            "take_profit": self.take_profit,
-            "risk_amount": self.risk_amount,
-            "risk_percent": self.risk_percent,
-            "contributing_signals": [s.to_dict() for s in self.contributing_signals],
-            "state": self.state,
-        }

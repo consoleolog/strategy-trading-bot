@@ -220,18 +220,18 @@ def test_to_dict_has_all_keys():
 
 @pytest.mark.unit
 def test_to_dict_enum_fields_are_enum_type():
-    """to_dict()의 enum 필드는 enum 타입으로 반환된다."""
+    """to_dict()의 enum 필드는 Enum .value 문자열로 반환된다."""
     result = Signal.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["type"], SignalType)
-    assert isinstance(result["value"], SignalValue)
-    assert isinstance(result["direction"], SignalDirection)
+    assert result["type"] == SignalType.CROSS_OVER.value
+    assert result["value"] == SignalValue.GOLDEN_CROSS.value
+    assert result["direction"] == SignalDirection.LONG.value
 
 
 @pytest.mark.unit
 def test_to_dict_timestamp_is_datetime():
-    """to_dict()의 timestamp는 datetime 타입으로 반환된다."""
+    """to_dict()의 timestamp는 ISO 8601 문자열로 반환된다."""
     result = Signal.from_dict(SAMPLE_DICT).to_dict()
-    assert isinstance(result["timestamp"], datetime)
+    assert isinstance(result["timestamp"], str)
 
 
 @pytest.mark.unit

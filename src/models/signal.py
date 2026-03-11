@@ -2,10 +2,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from ..utils.constants import SignalDirection, SignalType, SignalValue
+from .base import Base
 
 
 @dataclass
-class Signal:
+class Signal(Base):
     """
     전략 및 지표에 의해 생성된 트레이딩 신호(Signal) 모델
 
@@ -40,32 +41,3 @@ class Signal:
             self.direction = SignalDirection(self.direction)
         if isinstance(self.timestamp, str):
             self.timestamp = datetime.fromisoformat(self.timestamp)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Signal":
-        """딕셔너리 데이터를 Signal 객체로 변환합니다."""
-        return cls(
-            strategy_id=data.get("strategy_id"),
-            indicator_id=data.get("indicator_id"),
-            type=data.get("type"),
-            value=data.get("value"),
-            direction=data.get("direction"),
-            market=data.get("market"),
-            timeframe=data.get("timeframe"),
-            timestamp=data.get("timestamp", datetime.now()),
-            metadata=data.get("metadata", {}),
-        )
-
-    def to_dict(self) -> dict:
-        """Signal 객체를 딕셔너리로 변환합니다."""
-        return {
-            "strategy_id": self.strategy_id,
-            "indicator_id": self.indicator_id,
-            "type": self.type,
-            "value": self.value,
-            "direction": self.direction,
-            "market": self.market,
-            "timeframe": self.timeframe,
-            "timestamp": self.timestamp,
-            "metadata": self.metadata,
-        }

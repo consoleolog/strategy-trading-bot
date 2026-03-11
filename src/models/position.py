@@ -3,10 +3,11 @@ from datetime import datetime
 from decimal import Decimal
 
 from ..utils.constants import SignalDirection
+from .base import Base
 
 
 @dataclass
-class Position:
+class Position(Base):
     """
     보유 중인 포지션 모델
 
@@ -43,35 +44,6 @@ class Position:
 
         if isinstance(self.opened_at, str):
             self.opened_at = datetime.fromisoformat(self.opened_at)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Position":
-        """딕셔너리 데이터를 Position 객체로 변환합니다."""
-        return cls(
-            market=data.get("market"),
-            direction=data.get("direction"),
-            entry_price=data.get("entry_price"),
-            current_price=data.get("current_price"),
-            volume=data.get("volume"),
-            stop_loss=data.get("stop_loss"),
-            take_profit=data.get("take_profit"),
-            strategy_id=data.get("strategy_id"),
-            opened_at=data.get("opened_at", datetime.now()),
-        )
-
-    def to_dict(self) -> dict:
-        """Position 객체를 딕셔너리로 변환합니다."""
-        return {
-            "market": self.market,
-            "direction": self.direction,
-            "entry_price": self.entry_price,
-            "current_price": self.current_price,
-            "volume": self.volume,
-            "stop_loss": self.stop_loss,
-            "take_profit": self.take_profit,
-            "strategy_id": self.strategy_id,
-            "opened_at": self.opened_at,
-        }
 
     @property
     def unrealized_pnl(self) -> Decimal:
