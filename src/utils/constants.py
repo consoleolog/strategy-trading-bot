@@ -370,3 +370,42 @@ class MarketRegime(Enum):
     END_OF_BEAR = 5  # long > short > middle
     START_OF_BULL = 6  # short > long > middle
     UNKNOWN = 0
+
+
+# =============================================================================
+# Risk Enum
+# =============================================================================
+
+
+class RiskDecision(Enum):
+    """
+    리스크 검증 결과에 따른 거래 허용 결정
+
+    Attributes:
+        ALLOW: 거래 진행 허용
+        REDUCE_SIZE: 축소된 수량으로 거래 허용
+        FORCE_NO_ACTION: 거래 차단
+        EMERGENCY_STOP: 모든 포지션 즉시 청산
+    """
+
+    ALLOW = "ALLOW"
+    REDUCE_SIZE = "REDUCE_SIZE"
+    FORCE_NO_ACTION = "FORCE_NO_ACTION"
+    EMERGENCY_STOP = "EMERGENCY_STOP"
+
+
+class RiskSeverity(Enum):
+    """
+    리스크 조건의 심각도
+
+    Attributes:
+        INFO: 정보성 — 정상 범위 내 모니터링
+        WARNING: 경고 — 주의 필요
+        CRITICAL: 위험 — 즉각적인 조치 필요
+        EMERGENCY: 비상 — 시스템 전체 위기
+    """
+
+    INFO = "INFO"
+    WARNING = "WARNING"
+    CRITICAL = "CRITICAL"
+    EMERGENCY = "EMERGENCY"
