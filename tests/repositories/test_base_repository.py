@@ -1,6 +1,7 @@
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, ClassVar
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.models.base import Base
@@ -11,11 +12,23 @@ from src.repositories.base_repository import BaseRepository
 # ---------------------------------------------------------------------------
 
 
+class Direction(Enum):
+    LONG = "long"
+    SHORT = "short"
+
+
 @dataclass
 class Item(Base):
     item_id: str
     market: str
     strategy_id: str
+
+
+@dataclass
+class Trade(Base):
+    trade_id: str
+    market: str
+    direction: Direction
 
 
 class ItemRepository(BaseRepository[Item]):
@@ -24,9 +37,6 @@ class ItemRepository(BaseRepository[Item]):
     @property
     def table_name(self) -> str:
         return "items"
-
-    async def save(self, entity: Item) -> Item:
-        raise NotImplementedError
 
     async def find_by_id(self, entity_id: str | list[str]) -> Item | None:
         raise NotImplementedError
@@ -42,6 +52,39 @@ class ItemRepository(BaseRepository[Item]):
 
     async def _find_by_columns(self, columns: list[str], operator: str, values: list[Any]) -> list[Item]:
         raise NotImplementedError
+
+
+class TradeRepository(BaseRepository[Trade]):
+    primary_key: ClassVar[list[str]] = ["trade_id"]
+
+    @property
+    def table_name(self) -> str:
+        return "trades"
+
+    async def find_by_id(self, entity_id: str | list[str]) -> Trade | None:
+        raise NotImplementedError
+
+    async def find_all(self) -> list[Trade]:
+        raise NotImplementedError
+
+    async def delete_by_id(self, entity_id: str | list[str]) -> None:
+        raise NotImplementedError
+
+    async def count(self) -> int:
+        raise NotImplementedError
+
+    async def _find_by_columns(self, columns: list[str], operator: str, values: list[Any]) -> list[Trade]:
+        raise NotImplementedError
+
+
+def _make_mock_pool(return_row: dict) -> MagicMock:
+    """fetchrow 결과를 고정한 mock pool을 반환한다."""
+    mock_conn = AsyncMock()
+    mock_conn.fetchrow = AsyncMock(return_value=return_row)
+    mock_pool = MagicMock()
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+    return mock_pool
 
 
 @pytest.fixture
@@ -85,6 +128,24 @@ def test_primary_key_composite():
 def test_table_name(repo):
     """table_name이 올바르게 반환된다."""
     assert repo.table_name == "items"
+
+
+@pytest.mark.unit
+async def test_save_schema_qualified_table_name():
+    """schema.table 형식의 테이블명을 허용한다."""
+    row = {"item_id": "1", "market": "KRW-BTC", "strategy_id": "ma_v1"}
+    mock_pool = _make_mock_pool(row)
+
+    class SchemaRepo(ItemRepository):
+        @property
+        def table_name(self) -> str:
+            return "trading.items"
+
+    repo = SchemaRepo(pool=mock_pool)
+    await repo.save(Item(item_id="1", market="KRW-BTC", strategy_id="ma_v1"))
+
+    query, *_ = mock_pool.acquire.return_value.__aenter__.return_value.fetchrow.call_args.args
+    assert "INSERT INTO trading.items" in query
 
 
 # ---------------------------------------------------------------------------
@@ -165,3 +226,95 @@ def test_unknown_attribute_raises_attribute_error(repo):
     """find_by_ 패턴이 아닌 속성 접근 시 AttributeError가 발생한다."""
     with pytest.raises(AttributeError):
         _ = repo.unknown_method
+
+
+# ---------------------------------------------------------------------------
+# save
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+async def test_save_full_query():
+    """save()가 올바른 upsert 쿼리 전문을 생성한다."""
+    row = {"item_id": "1", "market": "KRW-BTC", "strategy_id": "ma_v1"}
+    mock_pool = _make_mock_pool(row)
+    repo = ItemRepository(pool=mock_pool)
+
+    await repo.save(Item(item_id="1", market="KRW-BTC", strategy_id="ma_v1"))
+
+    query, *_ = mock_pool.acquire.return_value.__aenter__.return_value.fetchrow.call_args.args
+    expected = (
+        "INSERT INTO items (item_id, market, strategy_id)"
+        " VALUES ($1, $2, $3)"
+        " ON CONFLICT (item_id) DO UPDATE SET market = EXCLUDED.market, strategy_id = EXCLUDED.strategy_id"
+        " RETURNING *"
+    )
+    assert query == expected
+
+
+@pytest.mark.unit
+async def test_save_composite_pk_full_query():
+    """복합 PK인 경우 ON CONFLICT에 모든 PK 컬럼이 포함된 전체 쿼리를 생성한다."""
+
+    @dataclass
+    class OrderFill(Base):
+        order_uuid: str
+        trade_id: str
+        market: str
+
+    class OrderFillRepository(BaseRepository[OrderFill]):
+        primary_key: ClassVar[list[str]] = ["order_uuid", "trade_id"]
+
+        @property
+        def table_name(self) -> str:
+            return "order_fills"
+
+        async def find_by_id(self, entity_id: str | list[str]) -> OrderFill | None: ...
+        async def find_all(self) -> list[OrderFill]: ...
+        async def delete_by_id(self, entity_id: str | list[str]) -> None: ...
+        async def count(self) -> int: ...
+        async def _find_by_columns(self, columns, operator, values): ...
+
+    row = {"order_uuid": "u1", "trade_id": "t1", "market": "KRW-BTC"}
+    mock_pool = _make_mock_pool(row)
+    repo = OrderFillRepository(pool=mock_pool)
+
+    await repo.save(OrderFill(order_uuid="u1", trade_id="t1", market="KRW-BTC"))
+
+    query, *_ = mock_pool.acquire.return_value.__aenter__.return_value.fetchrow.call_args.args
+    expected = (
+        "INSERT INTO order_fills (order_uuid, trade_id, market)"
+        " VALUES ($1, $2, $3)"
+        " ON CONFLICT (order_uuid, trade_id) DO UPDATE SET market = EXCLUDED.market"
+        " RETURNING *"
+    )
+    assert query == expected
+
+
+@pytest.mark.unit
+async def test_save_enum_field_converted_to_value():
+    """Enum 필드는 .value(문자열)로 변환되어 쿼리 인수로 전달된다."""
+    row = {"trade_id": "t1", "market": "KRW-BTC", "direction": "long"}
+    mock_pool = _make_mock_pool(row)
+    repo = TradeRepository(pool=mock_pool)
+
+    await repo.save(Trade(trade_id="t1", market="KRW-BTC", direction=Direction.LONG))
+
+    _, *values = mock_pool.acquire.return_value.__aenter__.return_value.fetchrow.call_args.args
+    assert "long" in values
+    assert Direction.LONG not in values
+
+
+@pytest.mark.unit
+async def test_save_returns_entity_from_row():
+    """save()는 DB RETURNING 결과를 엔티티로 변환해 반환한다."""
+    row = {"item_id": "99", "market": "KRW-ETH", "strategy_id": "rsi_v2"}
+    mock_pool = _make_mock_pool(row)
+    repo = ItemRepository(pool=mock_pool)
+
+    result = await repo.save(Item(item_id="99", market="KRW-ETH", strategy_id="rsi_v2"))
+
+    assert isinstance(result, Item)
+    assert result.item_id == "99"
+    assert result.market == "KRW-ETH"
+    assert result.strategy_id == "rsi_v2"
