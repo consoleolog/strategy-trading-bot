@@ -552,3 +552,185 @@ async def test_check_level_break_exact_threshold_returns_none():
     mock_save.assert_not_called()
     assert result_ob is None
     assert result_os is None
+
+
+# ---------------------------------------------------------------------------
+# 캔들 헬퍼
+# ---------------------------------------------------------------------------
+
+
+def _make_candles(prices: list[float]) -> list:
+    """trade_price / high_price / low_price 가 모두 동일한 단순 캔들 목록을 생성한다."""
+    candles = []
+    for p in prices:
+        c = MagicMock()
+        c.trade_price = Decimal(str(p))
+        c.high_price = Decimal(str(p))
+        c.low_price = Decimal(str(p))
+        candles.append(c)
+    return candles
+
+
+# ---------------------------------------------------------------------------
+# calculate_ema
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_calculate_ema_insufficient_candles_returns_empty():
+    """캔들 수가 period 미만이면 빈 배열을 반환한다."""
+    candles = _make_candles([100.0, 200.0])
+    result = BullOnlyStrategy.calculate_ema(candles, period=9)
+    assert len(result) == 0
+
+
+@pytest.mark.unit
+def test_calculate_ema_calls_talib_with_trade_prices(mocker):
+    """talib.EMA를 캔들의 trade_price 배열로 호출한다."""
+    mock_ema = mocker.patch("src.strategies.base_strategy.talib.EMA", return_value=np.array([1.0]))
+    candles = _make_candles([100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0])
+    BullOnlyStrategy.calculate_ema(candles, period=9)
+
+    mock_ema.assert_called_once()
+    prices_arg = mock_ema.call_args.args[0]
+    np.testing.assert_array_equal(prices_arg, [100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0])
+
+
+@pytest.mark.unit
+def test_calculate_ema_returns_talib_result(mocker):
+    """talib.EMA 반환값을 그대로 반환한다."""
+    expected = np.array([150.0, 155.0])
+    mocker.patch("src.strategies.base_strategy.talib.EMA", return_value=expected)
+    candles = _make_candles([100.0] * 9)
+
+    result = BullOnlyStrategy.calculate_ema(candles, period=9)
+
+    np.testing.assert_array_equal(result, expected)
+
+
+# ---------------------------------------------------------------------------
+# calculate_macd
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_calculate_macd_insufficient_candles_returns_empty_dict():
+    """캔들 수가 slow_period 미만이면 빈 배열 딕셔너리를 반환한다."""
+    candles = _make_candles([100.0] * 10)
+    result = BullOnlyStrategy.calculate_macd(candles, fast_period=13, slow_period=26)
+    assert len(result["macd"]) == 0
+    assert len(result["signal"]) == 0
+    assert len(result["histogram"]) == 0
+
+
+@pytest.mark.unit
+def test_calculate_macd_calls_talib_with_correct_periods(mocker):
+    """talib.MACD를 fast_period/slow_period/signal_period로 호출한다."""
+    mock_macd = mocker.patch(
+        "src.strategies.base_strategy.talib.MACD",
+        return_value=(np.array([1.0]), np.array([0.5]), np.array([0.5])),
+    )
+    candles = _make_candles([100.0] * 26)
+    BullOnlyStrategy.calculate_macd(candles, fast_period=13, slow_period=26, signal_period=9)
+
+    mock_macd.assert_called_once()
+    kwargs = mock_macd.call_args.kwargs
+    assert kwargs["fastperiod"] == 13
+    assert kwargs["slowperiod"] == 26
+    assert kwargs["signalperiod"] == 9
+
+
+@pytest.mark.unit
+def test_calculate_macd_returns_correct_keys(mocker):
+    """반환 딕셔너리가 macd, signal, histogram 키를 포함한다."""
+    mocker.patch(
+        "src.strategies.base_strategy.talib.MACD",
+        return_value=(np.array([1.0]), np.array([0.5]), np.array([0.5])),
+    )
+    candles = _make_candles([100.0] * 26)
+    result = BullOnlyStrategy.calculate_macd(candles)
+
+    assert set(result.keys()) == {"macd", "signal", "histogram"}
+    assert len(result["macd"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# calculate_rsi
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_calculate_rsi_insufficient_candles_returns_empty():
+    """캔들 수가 period 미만이면 빈 배열을 반환한다."""
+    candles = _make_candles([100.0] * 5)
+    result = BullOnlyStrategy.calculate_rsi(candles, period=14)
+    assert len(result) == 0
+
+
+@pytest.mark.unit
+def test_calculate_rsi_calls_talib_with_trade_prices(mocker):
+    """talib.RSI를 캔들의 trade_price 배열과 period로 호출한다."""
+    mock_rsi = mocker.patch("src.strategies.base_strategy.talib.RSI", return_value=np.array([55.0]))
+    candles = _make_candles([100.0] * 14)
+    BullOnlyStrategy.calculate_rsi(candles, period=14)
+
+    mock_rsi.assert_called_once()
+    assert mock_rsi.call_args.args[1] == 14
+
+
+@pytest.mark.unit
+def test_calculate_rsi_returns_talib_result(mocker):
+    """talib.RSI 반환값을 그대로 반환한다."""
+    expected = np.array([55.0, 60.0])
+    mocker.patch("src.strategies.base_strategy.talib.RSI", return_value=expected)
+    candles = _make_candles([100.0] * 14)
+
+    result = BullOnlyStrategy.calculate_rsi(candles, period=14)
+
+    np.testing.assert_array_equal(result, expected)
+
+
+# ---------------------------------------------------------------------------
+# calculate_stoch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_calculate_stoch_insufficient_candles_returns_empty_dict():
+    """캔들 수가 k_len 미만이면 빈 배열 딕셔너리를 반환한다."""
+    candles = _make_candles([100.0] * 5)
+    result = BullOnlyStrategy.calculate_stoch(candles, k_len=10, k_smooth=3, d_smooth=3)
+    assert len(result["k_slow"]) == 0
+    assert len(result["d_slow"]) == 0
+
+
+@pytest.mark.unit
+def test_calculate_stoch_calls_talib_with_correct_params(mocker):
+    """talib.STOCH을 올바른 파라미터로 호출한다."""
+    mock_stoch = mocker.patch(
+        "src.strategies.base_strategy.talib.STOCH",
+        return_value=(np.array([50.0]), np.array([48.0])),
+    )
+    candles = _make_candles([100.0] * 10)
+    BullOnlyStrategy.calculate_stoch(candles, k_len=10, k_smooth=3, d_smooth=3)
+
+    mock_stoch.assert_called_once()
+    kwargs = mock_stoch.call_args.kwargs
+    assert kwargs["fastk_period"] == 10
+    assert kwargs["slowk_period"] == 3
+    assert kwargs["slowd_period"] == 3
+
+
+@pytest.mark.unit
+def test_calculate_stoch_returns_correct_keys(mocker):
+    """반환 딕셔너리가 k_slow, d_slow 키를 포함한다."""
+    mocker.patch(
+        "src.strategies.base_strategy.talib.STOCH",
+        return_value=(np.array([50.0]), np.array([48.0])),
+    )
+    candles = _make_candles([100.0] * 10)
+    result = BullOnlyStrategy.calculate_stoch(candles, k_len=10, k_smooth=3, d_smooth=3)
+
+    assert set(result.keys()) == {"k_slow", "d_slow"}
+    assert len(result["k_slow"]) == 1
+    assert len(result["d_slow"]) == 1

@@ -3,6 +3,8 @@ from decimal import Decimal
 
 import numpy as np
 import structlog
+import talib
+from talib import MA_Type
 
 from ..models import Candle, PortfolioState, Signal, TradeCandidate
 from ..repositories import SignalRepository
@@ -247,3 +249,118 @@ class BaseStrategy(ABC):
             return await self.signal_repository.save(signal)
         else:
             return None
+
+    @staticmethod
+    def calculate_ema(candles: list[Candle], period: int = 9) -> np.ndarray:
+        """캔들 목록에서 지수 이동평균(EMA)을 계산한다.
+
+        캔들 수가 ``period`` 미만이면 빈 배열을 반환한다.
+
+        Args:
+            candles: 계산에 사용할 캔들 목록.
+            period: EMA 기간. 기본값 ``9``.
+
+        Returns:
+            EMA 값 배열. 캔들 수 부족 시 빈 배열.
+        """
+        if len(candles) < period:
+            return np.array([])
+        trade_prices = np.array([float(candle.trade_price) for candle in candles])
+        return talib.EMA(trade_prices, period)
+
+    @staticmethod
+    def calculate_macd(
+        candles: list[Candle], fast_period: int = 13, slow_period: int = 26, signal_period: int = 9
+    ) -> dict[str, np.ndarray]:
+        """캔들 목록에서 MACD 지표를 계산한다.
+
+        캔들 수가 ``slow_period`` 미만이면 빈 배열로 채워진 딕셔너리를 반환한다.
+
+        Args:
+            candles: 계산에 사용할 캔들 목록.
+            fast_period: 단기 EMA 기간. 기본값 ``13``.
+            slow_period: 장기 EMA 기간. 기본값 ``26``.
+            signal_period: 시그널 라인 EMA 기간. 기본값 ``9``.
+
+        Returns:
+            ``macd``, ``signal``, ``histogram`` 키를 가진 딕셔너리.
+            캔들 수 부족 시 각 값은 빈 배열.
+        """
+        return_dictionary = {
+            "macd": np.array([]),
+            "signal": np.array([]),
+            "histogram": np.array([]),
+        }
+        if len(candles) < slow_period:
+            return return_dictionary
+
+        trade_prices = np.array([float(candle.trade_price) for candle in candles])
+        macd, signal, histogram = talib.MACD(
+            trade_prices, fastperiod=fast_period, slowperiod=slow_period, signalperiod=signal_period
+        )
+        return_dictionary["macd"] = macd
+        return_dictionary["signal"] = signal
+        return_dictionary["histogram"] = histogram
+        return return_dictionary
+
+    @staticmethod
+    def calculate_rsi(candles: list[Candle], period: int = 14) -> np.ndarray:
+        """캔들 목록에서 RSI(상대 강도 지수)를 계산한다.
+
+        캔들 수가 ``period`` 미만이면 빈 배열을 반환한다.
+
+        Args:
+            candles: 계산에 사용할 캔들 목록.
+            period: RSI 기간. 기본값 ``14``.
+
+        Returns:
+            RSI 값 배열. 캔들 수 부족 시 빈 배열.
+        """
+        if len(candles) < period:
+            return np.array([])
+        trade_prices = np.array([float(candle.trade_price) for candle in candles])
+        return talib.RSI(trade_prices, period)
+
+    @staticmethod
+    def calculate_stoch(
+        candles: list[Candle], k_len: int = 10, k_smooth: int = 6, d_smooth: int = 6
+    ) -> dict[str, np.ndarray]:
+        """캔들 목록에서 스토캐스틱 오실레이터(Stochastic)를 계산한다.
+
+        캔들 수가 ``k_len`` 미만이면 빈 배열로 채워진 딕셔너리를 반환한다.
+
+        Args:
+            candles: 계산에 사용할 캔들 목록.
+            k_len: Fast %K 기간 (원시 스토캐스틱 윈도우).
+            k_smooth: Slow %K 스무딩 기간.
+            d_smooth: Slow %D 스무딩 기간.
+
+        Returns:
+            ``k_slow``, ``d_slow`` 키를 가진 딕셔너리.
+            캔들 수 부족 시 각 값은 빈 배열.
+        """
+        return_dictionary = {
+            "k_slow": np.array([]),
+            "d_slow": np.array([]),
+        }
+        if len(candles) < k_len:
+            return return_dictionary
+
+        high_prices = np.array([float(candle.high_price) for candle in candles])
+        low_prices = np.array([float(candle.low_price) for candle in candles])
+        trade_prices = np.array([float(candle.trade_price) for candle in candles])
+
+        k_slow, d_slow = talib.STOCH(
+            high_prices,
+            low_prices,
+            trade_prices,
+            fastk_period=k_len,
+            slowk_period=k_smooth,
+            slowk_matype=MA_Type.SMA,
+            slowd_period=d_smooth,
+            slowd_matype=MA_Type.SMA,
+        )
+
+        return_dictionary["k_slow"] = k_slow
+        return_dictionary["d_slow"] = d_slow
+        return return_dictionary
