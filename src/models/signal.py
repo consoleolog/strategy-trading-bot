@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from ..utils.constants import SignalDirection, SignalType, SignalValue
+from ..utils.constants import MarketRegime, SignalDirection, SignalType, SignalValue
 from .base import Base
 
 
@@ -16,6 +16,7 @@ class Signal(Base):
         type (SignalType): 신호 종류 (CROSS_OVER, THRESHOLD_CROSS, LEVEL_BREAK)
         value (SignalValue): 신호의 구체적인 값 (GOLDEN_CROSS, DEAD_CROSS 등)
         direction (SignalDirection): 포지션 방향 (LONG, SHORT, CLOSE, HOLD)
+        regime (MarketRegime): 신호가 생성된 시점의 시장 국면
         market (str): 대상 마켓 코드 (예: KRW-BTC)
         timeframe (str): 신호가 생성된 타임프레임 (예: 1m, 5m, 1h)
         timestamp (datetime): 신호 생성 시각
@@ -27,6 +28,7 @@ class Signal(Base):
     type: SignalType
     value: SignalValue
     direction: SignalDirection
+    regime: MarketRegime
     market: str
     timeframe: str
     timestamp: datetime = field(default_factory=datetime.now)
@@ -39,5 +41,7 @@ class Signal(Base):
             self.value = SignalValue(self.value)
         if isinstance(self.direction, str):
             self.direction = SignalDirection(self.direction)
+        if isinstance(self.regime, int):
+            self.regime = MarketRegime(self.regime)
         if isinstance(self.timestamp, str):
             self.timestamp = datetime.fromisoformat(self.timestamp)

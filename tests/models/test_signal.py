@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pytest
 from src.models.signal import Signal
-from src.utils.constants import SignalDirection, SignalType, SignalValue
+from src.utils.constants import MarketRegime, SignalDirection, SignalType, SignalValue
 
 SAMPLE_DICT = {
     "strategy_id": "ma_crossover_v1",
@@ -10,6 +10,7 @@ SAMPLE_DICT = {
     "type": "cross_over",
     "value": "golden_cross",
     "direction": "long",
+    "regime": 1,
     "market": "KRW-BTC",
     "timeframe": "1m",
     "timestamp": "2025-01-02T04:28:05",
@@ -188,6 +189,7 @@ def test_direct_construction_timestamp_defaults():
         type=SignalType.CROSS_OVER,
         value=SignalValue.GOLDEN_CROSS,
         direction=SignalDirection.LONG,
+        regime=MarketRegime.STABLE_BULL,
         market="KRW-BTC",
         timeframe="1m",
     )
@@ -210,6 +212,7 @@ def test_to_dict_has_all_keys():
         "type",
         "value",
         "direction",
+        "regime",
         "market",
         "timeframe",
         "timestamp",
@@ -248,3 +251,38 @@ def test_to_dict_metadata_preserved():
     """to_dict()의 metadata가 원본과 동일하다."""
     result = Signal.from_dict(SAMPLE_DICT).to_dict()
     assert result["metadata"] == {"short_period": 5, "long_period": 20}
+
+
+# ---------------------------------------------------------------------------
+# regime 필드
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_regime_is_market_regime_enum():
+    """int regime이 MarketRegime enum으로 변환된다."""
+    signal = Signal.from_dict(SAMPLE_DICT)
+    assert isinstance(signal.regime, MarketRegime)
+    assert signal.regime == MarketRegime.STABLE_BULL
+
+
+@pytest.mark.unit
+def test_all_regimes_parseable():
+    """모든 MarketRegime 값이 올바르게 파싱된다."""
+    for regime in MarketRegime:
+        signal = Signal.from_dict({**SAMPLE_DICT, "regime": regime.value})
+        assert signal.regime == regime
+
+
+@pytest.mark.unit
+def test_post_init_skips_already_regime_enum():
+    """이미 MarketRegime enum인 regime은 그대로 유지된다."""
+    signal = Signal.from_dict({**SAMPLE_DICT, "regime": MarketRegime.STABLE_BEAR})
+    assert signal.regime == MarketRegime.STABLE_BEAR
+
+
+@pytest.mark.unit
+def test_invalid_regime_raises_value_error():
+    """정의되지 않은 regime 값은 ValueError를 발생시킨다."""
+    with pytest.raises(ValueError):
+        Signal.from_dict({**SAMPLE_DICT, "regime": 99})
