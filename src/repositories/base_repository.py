@@ -4,7 +4,7 @@ from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import fields
 from enum import Enum
-from typing import Any, ClassVar, Generic, TypeVar, cast
+from typing import Any, ClassVar, Generic, TypeVar, cast, get_args
 
 from ..connections.database import PostgresPool
 from ..models.base import Base
@@ -42,6 +42,15 @@ class BaseRepository(Generic[T]):
     """비동기 기반 레포지토리."""
 
     primary_key: ClassVar[str | list[str]] = "id"
+    _entity_class: ClassVar[type]
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        for base in getattr(cls, "__orig_bases__", []):
+            args = get_args(base)
+            if args and isinstance(args[0], type):
+                cls._entity_class = args[0]
+                break
 
     def __init__(self, pool: PostgresPool) -> None:
         self.pool = pool
@@ -88,9 +97,21 @@ class BaseRepository(Generic[T]):
             row = await conn.fetchrow(query, *values)
             return type(entity).from_dict(dict(row))
 
-    @abstractmethod
     async def find_by_id(self, entity_id: str | list[str]) -> T | None:
-        raise NotImplementedError()
+        """PK로 단일 엔티티를 조회한다. 없으면 None을 반환한다."""
+        pk = self.primary_key if isinstance(self.primary_key, list) else [self.primary_key]
+        pk = [_validate_identifier(k) for k in pk]
+        table = _validate_table(self.table_name)
+
+        ids = entity_id if isinstance(entity_id, list) else [entity_id]
+        conditions = " AND ".join(f"{col} = ${i + 1}" for i, col in enumerate(pk))
+        query = f"SELECT * FROM {table} WHERE {conditions}"  # nosec B608
+
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(query, *ids)
+            if row is None:
+                return None
+            return self._entity_class.from_dict(dict(row))
 
     @abstractmethod
     async def find_all(self) -> list[T]:

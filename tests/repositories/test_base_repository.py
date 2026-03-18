@@ -38,9 +38,6 @@ class ItemRepository(BaseRepository[Item]):
     def table_name(self) -> str:
         return "items"
 
-    async def find_by_id(self, entity_id: str | list[str]) -> Item | None:
-        raise NotImplementedError
-
     async def find_all(self) -> list[Item]:
         raise NotImplementedError
 
@@ -61,9 +58,6 @@ class TradeRepository(BaseRepository[Trade]):
     def table_name(self) -> str:
         return "trades"
 
-    async def find_by_id(self, entity_id: str | list[str]) -> Trade | None:
-        raise NotImplementedError
-
     async def find_all(self) -> list[Trade]:
         raise NotImplementedError
 
@@ -77,8 +71,8 @@ class TradeRepository(BaseRepository[Trade]):
         raise NotImplementedError
 
 
-def _make_mock_pool(return_row: dict) -> MagicMock:
-    """fetchrow 결과를 고정한 mock pool을 반환한다."""
+def _make_mock_pool(return_row: dict | None) -> MagicMock:
+    """fetchrow 결과를 고정한 mock pool을 반환한다. None이면 행을 찾지 못한 경우를 시뮬레이션한다."""
     mock_conn = AsyncMock()
     mock_conn.fetchrow = AsyncMock(return_value=return_row)
     mock_pool = MagicMock()
@@ -318,3 +312,128 @@ async def test_save_returns_entity_from_row():
     assert result.item_id == "99"
     assert result.market == "KRW-ETH"
     assert result.strategy_id == "rsi_v2"
+
+
+# ---------------------------------------------------------------------------
+# find_by_id
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+async def test_find_by_id_returns_entity():
+    """find_by_id()는 DB 조회 결과를 엔티티로 변환해 반환한다."""
+    row = {"item_id": "42", "market": "KRW-BTC", "strategy_id": "ma_v1"}
+    mock_pool = _make_mock_pool(row)
+    repo = ItemRepository(pool=mock_pool)
+
+    result = await repo.find_by_id("42")
+
+    assert isinstance(result, Item)
+    assert result.item_id == "42"
+    assert result.market == "KRW-BTC"
+    assert result.strategy_id == "ma_v1"
+
+
+@pytest.mark.unit
+async def test_find_by_id_returns_none_when_not_found():
+    """find_by_id()는 행이 없으면 None을 반환한다."""
+    mock_pool = _make_mock_pool(None)
+    repo = ItemRepository(pool=mock_pool)
+
+    result = await repo.find_by_id("nonexistent")
+
+    assert result is None
+
+
+@pytest.mark.unit
+async def test_find_by_id_single_pk_query():
+    """find_by_id()가 단일 PK에 대한 올바른 SELECT 쿼리를 생성한다."""
+    row = {"item_id": "1", "market": "KRW-BTC", "strategy_id": "ma_v1"}
+    mock_pool = _make_mock_pool(row)
+    repo = ItemRepository(pool=mock_pool)
+
+    await repo.find_by_id("1")
+
+    query, *args = mock_pool.acquire.return_value.__aenter__.return_value.fetchrow.call_args.args
+    assert query == "SELECT * FROM items WHERE item_id = $1"
+    assert args == ["1"]
+
+
+@pytest.mark.unit
+async def test_find_by_id_composite_pk_query():
+    """find_by_id()가 복합 PK에 대한 올바른 SELECT 쿼리를 생성한다."""
+
+    @dataclass
+    class OrderFill(Base):
+        order_uuid: str
+        trade_id: str
+        market: str
+
+    class OrderFillRepository(BaseRepository[OrderFill]):
+        primary_key: ClassVar[list[str]] = ["order_uuid", "trade_id"]
+
+        @property
+        def table_name(self) -> str:
+            return "order_fills"
+
+        async def find_all(self) -> list[OrderFill]: ...
+        async def delete_by_id(self, entity_id: str | list[str]) -> None: ...
+        async def count(self) -> int: ...
+        async def _find_by_columns(self, columns, operator, values): ...
+
+    row = {"order_uuid": "u1", "trade_id": "t1", "market": "KRW-BTC"}
+    mock_pool = _make_mock_pool(row)
+    repo = OrderFillRepository(pool=mock_pool)
+
+    await repo.find_by_id(["u1", "t1"])
+
+    query, *args = mock_pool.acquire.return_value.__aenter__.return_value.fetchrow.call_args.args
+    assert query == "SELECT * FROM order_fills WHERE order_uuid = $1 AND trade_id = $2"
+    assert args == ["u1", "t1"]
+
+
+@pytest.mark.unit
+async def test_find_by_id_composite_pk_returns_entity():
+    """find_by_id()는 복합 PK 조회 결과를 올바르게 엔티티로 변환한다."""
+
+    @dataclass
+    class OrderFill(Base):
+        order_uuid: str
+        trade_id: str
+        market: str
+
+    class OrderFillRepository(BaseRepository[OrderFill]):
+        primary_key: ClassVar[list[str]] = ["order_uuid", "trade_id"]
+
+        @property
+        def table_name(self) -> str:
+            return "order_fills"
+
+        async def find_all(self) -> list[OrderFill]: ...
+        async def delete_by_id(self, entity_id: str | list[str]) -> None: ...
+        async def count(self) -> int: ...
+        async def _find_by_columns(self, columns, operator, values): ...
+
+    row = {"order_uuid": "u1", "trade_id": "t1", "market": "KRW-BTC"}
+    mock_pool = _make_mock_pool(row)
+    repo = OrderFillRepository(pool=mock_pool)
+
+    result = await repo.find_by_id(["u1", "t1"])
+
+    assert isinstance(result, OrderFill)
+    assert result.order_uuid == "u1"
+    assert result.trade_id == "t1"
+    assert result.market == "KRW-BTC"
+
+
+@pytest.mark.unit
+async def test_find_by_id_enum_field_restored():
+    """find_by_id()는 DB에서 조회한 문자열 값을 Enum으로 복원한다."""
+    row = {"trade_id": "t1", "market": "KRW-BTC", "direction": "long"}
+    mock_pool = _make_mock_pool(row)
+    repo = TradeRepository(pool=mock_pool)
+
+    result = await repo.find_by_id("t1")
+
+    assert isinstance(result, Trade)
+    assert result.direction is Direction.LONG
