@@ -208,9 +208,18 @@ class BaseRepository(Generic[T]):
                 return None
             return self._entity_class.from_dict(dict(row))
 
-    @abstractmethod
     async def delete_by_id(self, entity_id: str | list[str]) -> None:
-        raise NotImplementedError()
+        """PK로 엔티티를 삭제한다."""
+        pk = self.primary_key if isinstance(self.primary_key, list) else [self.primary_key]
+        pk = [_validate_identifier(k) for k in pk]
+        table = _validate_table(self.table_name)
+
+        ids = entity_id if isinstance(entity_id, list) else [entity_id]
+        conditions = " AND ".join(f"{col} = ${i + 1}" for i, col in enumerate(pk))
+        query = f"DELETE FROM {table} WHERE {conditions}"  # nosec B608
+
+        async with self.pool.acquire() as conn:
+            await conn.execute(query, *ids)
 
     # ------------------------------------------------------------------
     # 쿼리 헬퍼 — find_by_* / find_all_by_* 의 실제 실행부

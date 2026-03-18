@@ -41,9 +41,6 @@ class ItemRepository(BaseRepository[Item]):
     async def find_all(self) -> list[Item]:
         raise NotImplementedError
 
-    async def delete_by_id(self, entity_id: str | list[str]) -> None:
-        raise NotImplementedError
-
     async def count(self) -> int:
         raise NotImplementedError
 
@@ -56,9 +53,6 @@ class TradeRepository(BaseRepository[Trade]):
         return "trades"
 
     async def find_all(self) -> list[Trade]:
-        raise NotImplementedError
-
-    async def delete_by_id(self, entity_id: str | list[str]) -> None:
         raise NotImplementedError
 
     async def count(self) -> int:
@@ -79,6 +73,16 @@ def _make_mock_pool_rows(return_rows: list[dict]) -> MagicMock:
     """fetch 결과(복수 행)를 고정한 mock pool을 반환한다."""
     mock_conn = AsyncMock()
     mock_conn.fetch = AsyncMock(return_value=return_rows)
+    mock_pool = MagicMock()
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+    return mock_pool
+
+
+def _make_mock_pool_execute() -> MagicMock:
+    """execute 호출을 모킹한 pool을 반환한다."""
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock(return_value=None)
     mock_pool = MagicMock()
     mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
@@ -699,3 +703,75 @@ def test_real_impl_not_replaced_by_stub_detection():
     repo = ConcreteRepo(pool=None)  # type: ignore[arg-type]
     # 메서드가 살아있는지만 확인 (실제 호출은 DB 필요)
     assert repo.find_all_by_market.__qualname__.endswith("ConcreteRepo.find_all_by_market")
+
+
+# ---------------------------------------------------------------------------
+# delete_by_id
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+async def test_delete_by_id_single_pk_query():
+    """delete_by_id()가 단일 PK에 대한 올바른 DELETE 쿼리를 생성한다."""
+    mock_pool = _make_mock_pool_execute()
+    repo = ItemRepository(pool=mock_pool)
+
+    await repo.delete_by_id("42")
+
+    query, *args = mock_pool.acquire.return_value.__aenter__.return_value.execute.call_args.args
+    assert query == "DELETE FROM items WHERE item_id = $1"
+    assert args == ["42"]
+
+
+@pytest.mark.unit
+async def test_delete_by_id_composite_pk_query():
+    """delete_by_id()가 복합 PK에 대한 올바른 DELETE 쿼리를 생성한다."""
+
+    @dataclass
+    class OrderFill(Base):
+        order_uuid: str
+        trade_id: str
+        market: str
+
+    class OrderFillRepository(BaseRepository[OrderFill]):
+        primary_key: ClassVar[list[str]] = ["order_uuid", "trade_id"]
+
+        @property
+        def table_name(self) -> str:
+            return "order_fills"
+
+        async def find_all(self) -> list[OrderFill]: ...
+
+    mock_pool = _make_mock_pool_execute()
+    repo = OrderFillRepository(pool=mock_pool)
+
+    await repo.delete_by_id(["u1", "t1"])
+
+    query, *args = mock_pool.acquire.return_value.__aenter__.return_value.execute.call_args.args
+    assert query == "DELETE FROM order_fills WHERE order_uuid = $1 AND trade_id = $2"
+    assert args == ["u1", "t1"]
+
+
+@pytest.mark.unit
+async def test_delete_by_id_string_wrapped_as_list():
+    """delete_by_id()에 문자열을 전달하면 리스트로 감싸서 쿼리 인수로 전달한다."""
+    mock_pool = _make_mock_pool_execute()
+    repo = ItemRepository(pool=mock_pool)
+
+    await repo.delete_by_id("single-id")
+
+    _, *args = mock_pool.acquire.return_value.__aenter__.return_value.execute.call_args.args
+    assert args == ["single-id"]
+
+
+@pytest.mark.unit
+async def test_delete_by_id_calls_execute_not_fetchrow():
+    """delete_by_id()는 fetchrow가 아닌 execute를 호출한다."""
+    mock_pool = _make_mock_pool_execute()
+    repo = ItemRepository(pool=mock_pool)
+
+    await repo.delete_by_id("42")
+
+    mock_conn = mock_pool.acquire.return_value.__aenter__.return_value
+    mock_conn.execute.assert_called_once()
+    mock_conn.fetchrow.assert_not_called()
