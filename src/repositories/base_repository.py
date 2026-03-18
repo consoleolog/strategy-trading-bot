@@ -1,3 +1,5 @@
+import asyncio
+import dis
 import json
 import re
 from abc import abstractmethod
@@ -12,6 +14,7 @@ from ..models.base import Base
 T = TypeVar("T", bound=Base)
 
 _FIND_BY_PATTERN = re.compile(r"^find_by_(.+)$")
+_FIND_ALL_BY_PATTERN = re.compile(r"^find_all_by_(.+)$")
 _SAFE_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _SAFE_TABLE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$")
 
@@ -38,19 +41,111 @@ def _validate_table(name: str) -> str:
     return name
 
 
+def _parse_columns_operator(body: str) -> tuple[list[str], str]:
+    """메서드명 바디에서 컬럼 목록과 연산자를 파싱한다.
+
+    ``market_and_timeframe``  → (["market", "timeframe"], "AND")
+    ``market_or_strategy_id`` → (["market", "strategy_id"], "OR")
+    """
+    if "_or_" in body:
+        return body.split("_or_"), "OR"
+    return body.split("_and_"), "AND"
+
+
+def _is_stub(func: Any) -> bool:
+    """코루틴 함수 바디가 스텁(``...`` / ``pass`` / ``raise NotImplementedError``)인지 확인한다.
+
+    Spring Data 처럼 메서드 선언만으로 자동 구현이 필요한 메서드를 감지하는 데 쓰인다.
+    """
+    if not asyncio.iscoroutinefunction(func):
+        return False
+    code = func.__code__
+    # 인자 외 추가 로컬 변수가 있으면 실제 구현으로 간주
+    if code.co_nlocals > code.co_argcount:
+        return False
+    instructions = [
+        i for i in dis.get_instructions(code) if i.opname not in ("RESUME", "RETURN_GENERATOR", "COPY_FREE_VARS")
+    ]
+    opnames = {i.opname for i in instructions}
+    # raise NotImplementedError 패턴
+    if "RAISE_VARARGS" in opnames:
+        return True
+    # pass / ... 패턴: 상수 로드 + 반환만 존재
+    return opnames <= {"LOAD_CONST", "POP_TOP", "RETURN_VALUE", "RETURN_CONST"}
+
+
+def _make_find_one(method_name: str, columns: list[str], operator: str) -> Any:
+    """``_find_by_columns``를 호출하는 단일 조회 메서드를 생성한다."""
+
+    async def _method(self: Any, *values: Any) -> Any:
+        if len(values) != len(columns):
+            raise TypeError(f"{method_name}() takes {len(columns)} argument(s), got {len(values)}")
+        coerced = [v.value if isinstance(v, Enum) else v for v in values]
+        return await self._find_by_columns(columns, operator, coerced)
+
+    _method.__name__ = method_name
+    return _method
+
+
+def _make_find_all(method_name: str, columns: list[str], operator: str) -> Any:
+    """``_find_all_by_columns``를 호출하는 복수 조회 메서드를 생성한다."""
+
+    async def _method(self: Any, *values: Any) -> Any:
+        if len(values) != len(columns):
+            raise TypeError(f"{method_name}() takes {len(columns)} argument(s), got {len(values)}")
+        coerced = [v.value if isinstance(v, Enum) else v for v in values]
+        return await self._find_all_by_columns(columns, operator, coerced)
+
+    _method.__name__ = method_name
+    return _method
+
+
 class BaseRepository(Generic[T]):
-    """비동기 기반 레포지토리."""
+    """비동기 기반 레포지토리.
+
+    서브클래스에서 ``find_by_*`` / ``find_all_by_*`` 메서드를 ``...`` 스텁으로
+    선언하기만 하면 메서드명을 분석해 SQL 쿼리를 자동 생성한다.
+
+    규칙:
+        - ``find_by_<col>_and_<col>``      → ``T | None``     (단일 조회)
+        - ``find_all_by_<col>_and_<col>``  → ``list[T]``      (복수 조회)
+        - ``_and_`` 구분자 → AND, ``_or_`` 구분자 → OR
+        - ``Enum`` 값은 자동으로 ``.value``(문자열)로 변환
+
+    Example::
+
+        class SignalRepository(BaseRepository[Signal]):
+            async def find_by_strategy_id_and_market(
+                self, strategy_id: str, market: str
+            ) -> Signal | None: ...
+
+            async def find_all_by_market(self, market: str) -> list[Signal]: ...
+    """
 
     primary_key: ClassVar[str | list[str]] = "id"
     _entity_class: ClassVar[type]
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        # 제네릭 타입 인자에서 엔티티 클래스 캡처
         for base in getattr(cls, "__orig_bases__", []):
             args = get_args(base)
             if args and isinstance(args[0], type):
                 cls._entity_class = args[0]
                 break
+        # 스텁으로 선언된 find_by_* / find_all_by_* 메서드 자동 구현
+        for attr_name, func in list(vars(cls).items()):
+            if not _is_stub(func):
+                continue
+            m = _FIND_ALL_BY_PATTERN.match(attr_name)
+            if m:
+                cols, op = _parse_columns_operator(m.group(1))
+                setattr(cls, attr_name, _make_find_all(attr_name, cols, op))
+                continue
+            m = _FIND_BY_PATTERN.match(attr_name)
+            if m:
+                cols, op = _parse_columns_operator(m.group(1))
+                setattr(cls, attr_name, _make_find_one(attr_name, cols, op))
 
     def __init__(self, pool: PostgresPool) -> None:
         self.pool = pool
@@ -114,39 +209,74 @@ class BaseRepository(Generic[T]):
             return self._entity_class.from_dict(dict(row))
 
     @abstractmethod
-    async def find_all(self) -> list[T]:
-        raise NotImplementedError()
-
-    @abstractmethod
     async def delete_by_id(self, entity_id: str | list[str]) -> None:
         raise NotImplementedError()
 
     # ------------------------------------------------------------------
-    # 동적 쿼리 메서드 — find_by_<col>, find_by_<col>_and_<col>, _or_
+    # 쿼리 헬퍼 — find_by_* / find_all_by_* 의 실제 실행부
     # ------------------------------------------------------------------
 
-    @abstractmethod
-    async def _find_by_columns(self, columns: list[str], operator: str, values: list[Any]) -> list[T]:
-        """컬럼 목록과 연산자(AND/OR)로 조회한다. 동적 메서드의 실제 구현부."""
-        ...
+    async def _find_by_columns(self, columns: list[str], operator: str, values: list[Any]) -> T | None:
+        """컬럼 목록과 연산자(AND/OR)로 단일 행을 조회한다.
+
+        Returns:
+            조건에 맞는 첫 번째 엔티티. 없으면 ``None``.
+        """
+        validated_cols = [_validate_identifier(col) for col in columns]
+        table = _validate_table(self.table_name)
+        conditions = f" {operator} ".join(f"{col} = ${i + 1}" for i, col in enumerate(validated_cols))
+        query = f"SELECT * FROM {table} WHERE {conditions} LIMIT 1"  # nosec B608
+
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(query, *values)
+            if row is None:
+                return None
+            return self._entity_class.from_dict(dict(row))
+
+    async def _find_all_by_columns(self, columns: list[str], operator: str, values: list[Any]) -> list[T]:
+        """컬럼 목록과 연산자(AND/OR)로 복수 행을 조회한다.
+
+        Returns:
+            조건에 맞는 엔티티 목록.
+        """
+        validated_cols = [_validate_identifier(col) for col in columns]
+        table = _validate_table(self.table_name)
+        conditions = f" {operator} ".join(f"{col} = ${i + 1}" for i, col in enumerate(validated_cols))
+        query = f"SELECT * FROM {table} WHERE {conditions}"  # nosec B608
+
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(query, *values)
+            return [self._entity_class.from_dict(dict(row)) for row in rows]
+
+    # ------------------------------------------------------------------
+    # 미선언 동적 메서드 — __getattr__ 폴백
+    # ------------------------------------------------------------------
 
     def __getattr__(self, name: str) -> Callable:
-        match = _FIND_BY_PATTERN.match(name)
-        if not match:
-            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        # find_all_by_* → 복수 조회 (list[T])
+        m = _FIND_ALL_BY_PATTERN.match(name)
+        if m:
+            cols, op = _parse_columns_operator(m.group(1))
 
-        body = match.group(1)
+            async def _dynamic_all(*values: Any) -> list[T]:
+                if len(values) != len(cols):
+                    raise TypeError(f"{name}() takes {len(cols)} argument(s), got {len(values)}")
+                coerced = [v.value if isinstance(v, Enum) else v for v in values]
+                return await self._find_all_by_columns(cols, op, coerced)
 
-        if "_or_" in body:
-            columns = body.split("_or_")
-            operator = "OR"
-        else:
-            columns = body.split("_and_")
-            operator = "AND"
+            return _dynamic_all
 
-        async def _dynamic(*values: Any) -> list[T]:
-            if len(values) != len(columns):
-                raise TypeError(f"{name}() takes {len(columns)} argument(s), got {len(values)}")
-            return await self._find_by_columns(columns, operator, list(values))
+        # find_by_* → 단일 조회 (T | None)
+        m = _FIND_BY_PATTERN.match(name)
+        if m:
+            cols, op = _parse_columns_operator(m.group(1))
 
-        return _dynamic
+            async def _dynamic_one(*values: Any) -> T | None:
+                if len(values) != len(cols):
+                    raise TypeError(f"{name}() takes {len(cols)} argument(s), got {len(values)}")
+                coerced = [v.value if isinstance(v, Enum) else v for v in values]
+                return await self._find_by_columns(cols, op, coerced)
+
+            return _dynamic_one
+
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
