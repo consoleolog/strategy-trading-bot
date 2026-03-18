@@ -2,7 +2,7 @@ import asyncio
 import dis
 import json
 import re
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import fields
 from enum import Enum
@@ -100,7 +100,7 @@ def _make_find_all(method_name: str, columns: list[str], operator: str) -> Any:
     return _method
 
 
-class BaseRepository(Generic[T]):
+class BaseRepository(ABC, Generic[T]):
     """비동기 기반 레포지토리.
 
     서브클래스에서 ``find_by_*`` / ``find_all_by_*`` 메서드를 ``...`` 스텁으로
