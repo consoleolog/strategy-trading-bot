@@ -1,5 +1,6 @@
 """BaseStrategy 단위 테스트."""
 
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import numpy as np
@@ -415,3 +416,139 @@ async def test_check_crossover_regime_passed_to_signal():
 
     saved = mock_save.call_args.args[0]
     assert saved.regime is MarketRegime.STABLE_BULL
+
+
+# ---------------------------------------------------------------------------
+# check_level_break
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+async def test_check_level_break_overbought_saves_and_returns_signal():
+    """value > overbought 이면 OVER_BOUGHT 신호를 저장하고 반환한다."""
+    strategy, mock_save = _make_strategy_with_mock_repo()
+
+    result = await strategy.check_level_break(
+        value=Decimal("75"),
+        overbought=70,
+        oversold=30,
+        market="KRW-BTC",
+        candle_type=CandleType.MINUTE_1,
+        indicator_id="rsi_14",
+        regime=MarketRegime.STABLE_BULL,
+    )
+
+    mock_save.assert_called_once()
+    saved = mock_save.call_args.args[0]
+    assert saved.value is SignalValue.OVER_BOUGHT
+    assert saved.type is SignalType.LEVEL_BREAK
+    assert isinstance(result, Signal)
+
+
+@pytest.mark.unit
+async def test_check_level_break_oversold_saves_and_returns_signal():
+    """value < oversold 이면 OVER_SOLD 신호를 저장하고 반환한다."""
+    strategy, mock_save = _make_strategy_with_mock_repo()
+
+    await strategy.check_level_break(
+        value=Decimal("25"),
+        overbought=70,
+        oversold=30,
+        market="KRW-BTC",
+        candle_type=CandleType.MINUTE_1,
+        indicator_id="rsi_14",
+        regime=MarketRegime.STABLE_BEAR,
+    )
+
+    mock_save.assert_called_once()
+    saved = mock_save.call_args.args[0]
+    assert saved.value is SignalValue.OVER_SOLD
+    assert saved.type is SignalType.LEVEL_BREAK
+
+
+@pytest.mark.unit
+async def test_check_level_break_within_range_returns_none():
+    """value가 과매수/과매도 범위 안이면 None을 반환하고 저장소를 호출하지 않는다."""
+    strategy, mock_save = _make_strategy_with_mock_repo()
+
+    result = await strategy.check_level_break(
+        value=Decimal("50"),
+        overbought=70,
+        oversold=30,
+        market="KRW-BTC",
+        candle_type=CandleType.MINUTE_1,
+        indicator_id="rsi_14",
+        regime=MarketRegime.STABLE_BULL,
+    )
+
+    mock_save.assert_not_called()
+    assert result is None
+
+
+@pytest.mark.unit
+async def test_check_level_break_metadata_contains_values():
+    """check_level_break()가 생성한 신호의 metadata에 value/임계값이 포함된다."""
+    strategy, mock_save = _make_strategy_with_mock_repo()
+
+    await strategy.check_level_break(
+        value=Decimal("75"),
+        overbought=70,
+        oversold=30,
+        market="KRW-BTC",
+        candle_type=CandleType.MINUTE_1,
+        indicator_id="rsi_14",
+        regime=MarketRegime.STABLE_BULL,
+    )
+
+    saved = mock_save.call_args.args[0]
+    assert saved.metadata["value"] == 75.0
+    assert saved.metadata["overbought"] == 70
+    assert saved.metadata["oversold"] == 30
+
+
+@pytest.mark.unit
+async def test_check_level_break_regime_passed_to_signal():
+    """check_level_break()가 생성한 신호에 regime이 올바르게 전달된다."""
+    strategy, mock_save = _make_strategy_with_mock_repo()
+
+    await strategy.check_level_break(
+        value=Decimal("75"),
+        overbought=70,
+        oversold=30,
+        market="KRW-BTC",
+        candle_type=CandleType.MINUTE_1,
+        indicator_id="rsi_14",
+        regime=MarketRegime.STABLE_BEAR,
+    )
+
+    saved = mock_save.call_args.args[0]
+    assert saved.regime is MarketRegime.STABLE_BEAR
+
+
+@pytest.mark.unit
+async def test_check_level_break_exact_threshold_returns_none():
+    """value == overbought 또는 value == oversold 이면 None을 반환한다."""
+    strategy, mock_save = _make_strategy_with_mock_repo()
+
+    result_ob = await strategy.check_level_break(
+        value=Decimal("70"),
+        overbought=70,
+        oversold=30,
+        market="KRW-BTC",
+        candle_type=CandleType.MINUTE_1,
+        indicator_id="rsi_14",
+        regime=MarketRegime.STABLE_BULL,
+    )
+    result_os = await strategy.check_level_break(
+        value=Decimal("30"),
+        overbought=70,
+        oversold=30,
+        market="KRW-BTC",
+        candle_type=CandleType.MINUTE_1,
+        indicator_id="rsi_14",
+        regime=MarketRegime.STABLE_BULL,
+    )
+
+    mock_save.assert_not_called()
+    assert result_ob is None
+    assert result_os is None

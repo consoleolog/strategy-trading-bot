@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from decimal import Decimal
 
 import numpy as np
 import structlog
@@ -179,6 +180,64 @@ class BaseStrategy(ABC):
                 indicator_id=indicator_id,
                 signal_type=SignalType.CROSS_OVER,
                 value=SignalValue.DEAD_CROSS,
+                direction=SignalDirection.CLOSE,
+                regime=regime,
+                market=market,
+                candle_type=candle_type,
+                metadata=metadata,
+            )
+            return await self.signal_repository.save(signal)
+        else:
+            return None
+
+    async def check_level_break(
+        self,
+        value: Decimal,
+        overbought: int,
+        oversold: int,
+        market: str,
+        candle_type: CandleType,
+        indicator_id: str,
+        regime: MarketRegime,
+    ) -> Signal | None:
+        """지표 값이 과매수/과매도 임계값을 벗어났는지 감지하고 신호를 저장한다.
+
+        Args:
+            value: 현재 지표 값 (예: RSI).
+            overbought: 과매수 임계값. ``value > overbought`` 이면 OVER_BOUGHT 신호 생성.
+            oversold: 과매도 임계값. ``value < oversold`` 이면 OVER_SOLD 신호 생성.
+            market: 대상 마켓 코드.
+            candle_type: 캔들 타입 (타임프레임 결정에 사용).
+            indicator_id: 지표 식별자.
+            regime: 현재 시장 국면.
+
+        Returns:
+            임계값 돌파 시 저장된 :class:`Signal`, 아니면 ``None``.
+        """
+        metadata = {
+            "value": float(value),
+            "overbought": overbought,
+            "oversold": oversold,
+        }
+
+        # value > 과매수 임계값 -> OVER BOUGHT
+        if value > Decimal(str(overbought)):
+            signal = self.create_signal(
+                indicator_id=indicator_id,
+                signal_type=SignalType.LEVEL_BREAK,
+                value=SignalValue.OVER_BOUGHT,
+                direction=SignalDirection.LONG,
+                regime=regime,
+                market=market,
+                candle_type=candle_type,
+                metadata=metadata,
+            )
+            return await self.signal_repository.save(signal)
+        elif value < Decimal(str(oversold)):
+            signal = self.create_signal(
+                indicator_id=indicator_id,
+                signal_type=SignalType.LEVEL_BREAK,
+                value=SignalValue.OVER_SOLD,
                 direction=SignalDirection.CLOSE,
                 regime=regime,
                 market=market,
