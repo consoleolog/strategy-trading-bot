@@ -6,7 +6,7 @@ import structlog
 import talib
 from talib import MA_Type
 
-from ..models import Candle, PortfolioState, Signal, TradeCandidate
+from ..models import Candle, PortfolioState, Signal
 from ..repositories import SignalRepository
 from ..utils.constants import CandleType, MarketRegime, SignalDirection, SignalType, SignalValue
 from .signal_aggregator import SignalAggregator
@@ -48,16 +48,13 @@ class BaseStrategy(ABC):
     # ========================================================================
 
     @abstractmethod
-    async def evaluate(self, candles: list[Candle], regime: MarketRegime, portfolio: PortfolioState) -> TradeCandidate:
-        """현재 시장 상황을 평가하고 거래 후보를 반환한다.
+    async def evaluate(self, candles: list[Candle], regime: MarketRegime, portfolio: PortfolioState) -> None:
+        """현재 시장 상황을 평가한다.
 
         Args:
             candles: 평가에 사용할 캔들 목록.
             regime: 현재 시장 국면.
             portfolio: 현재 포트폴리오 상태.
-
-        Returns:
-            전략이 판단한 거래 후보.
         """
         raise NotImplementedError()
 

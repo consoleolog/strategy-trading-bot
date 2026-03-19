@@ -25,7 +25,7 @@ from src.utils.constants import (
 class BullOnlyStrategy(BaseStrategy):
     """상승장 국면만 지원하는 최소 구현 전략."""
 
-    async def evaluate(self, candles, regime, portfolio):
+    async def evaluate(self, candles, regime, portfolio) -> None:
         raise NotImplementedError
 
     def get_supported_regimes(self) -> list[MarketRegime]:
@@ -35,7 +35,7 @@ class BullOnlyStrategy(BaseStrategy):
 class AllRegimeStrategy(BaseStrategy):
     """모든 국면을 지원하는 전략."""
 
-    async def evaluate(self, candles, regime, portfolio):
+    async def evaluate(self, candles, regime, portfolio) -> None:
         raise NotImplementedError
 
     def get_supported_regimes(self) -> list[MarketRegime]:
