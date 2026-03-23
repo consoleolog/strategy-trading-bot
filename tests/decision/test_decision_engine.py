@@ -126,14 +126,14 @@ def test_confluence_checker_is_stored(aggregator, confluence_checker):
 @pytest.mark.unit
 def test_returns_empty_list_when_no_signals(engine):
     """집계된 시그널이 없으면 빈 Decision 목록을 반환한다."""
-    result = engine.process(make_portfolio(), {})
+    result = engine.process(make_portfolio(), Decimal("0"))
     assert result == []
 
 
 @pytest.mark.unit
 def test_aggregator_cleared_when_no_signals(engine, aggregator):
     """시그널이 없어도 처리 후 aggregator.clear() 가 호출된다."""
-    engine.process(make_portfolio(), {})
+    engine.process(make_portfolio(), Decimal("0"))
     # SignalAggregator.clear() 가 실제로 호출되어 내부 상태가 비워졌는지 확인
     assert aggregator.signal_count == 0
 
@@ -150,7 +150,7 @@ def test_skips_market_with_existing_position(engine, aggregator, confluence_chec
     aggregator._signals["KRW-BTC"] = [MagicMock()]
     portfolio = make_portfolio(positions={"KRW-BTC": make_position("KRW-BTC")})
 
-    engine.process(portfolio, {"KRW-BTC": Decimal("100000")})
+    engine.process(portfolio, Decimal("100000"))
 
     confluence_checker.check.assert_not_called()
 
@@ -167,7 +167,7 @@ def test_returns_empty_when_all_markets_have_positions(engine, aggregator, confl
         }
     )
 
-    result = engine.process(portfolio, {})
+    result = engine.process(portfolio, Decimal("0"))
     assert result == []
 
 
@@ -182,7 +182,7 @@ def test_skips_when_confluence_returns_none(engine, aggregator, confluence_check
     aggregator._signals["KRW-BTC"] = [MagicMock()]
     confluence_checker.check.return_value = None
 
-    result = engine.process(make_portfolio(), {"KRW-BTC": Decimal("100000")})
+    result = engine.process(make_portfolio(), Decimal("100000"))
 
     assert result == []
     engine.position_sizer.calculate.assert_not_called()
@@ -195,11 +195,11 @@ def test_skips_when_confluence_returns_none(engine, aggregator, confluence_check
 
 @pytest.mark.unit
 def test_skips_when_price_is_zero(engine, aggregator, confluence_checker):
-    """current_prices 에서 가져온 가격이 0 이면 건너뜀."""
+    """price 가 0 이고 suggested_entry 도 0 이면 건너뜀."""
     aggregator._signals["KRW-BTC"] = [MagicMock()]
     confluence_checker.check.return_value = make_candidate(suggested_entry="0")
 
-    result = engine.process(make_portfolio(), {"KRW-BTC": Decimal("0")})
+    result = engine.process(make_portfolio(), Decimal("0"))
 
     assert result == []
     engine.position_sizer.calculate.assert_not_called()
@@ -207,25 +207,25 @@ def test_skips_when_price_is_zero(engine, aggregator, confluence_checker):
 
 @pytest.mark.unit
 def test_skips_when_price_is_negative(engine, aggregator, confluence_checker):
-    """current_prices 에서 가져온 가격이 음수이면 건너뜀."""
+    """price 가 음수이면 건너뜀."""
     aggregator._signals["KRW-BTC"] = [MagicMock()]
     confluence_checker.check.return_value = make_candidate(suggested_entry="0")
 
-    result = engine.process(make_portfolio(), {"KRW-BTC": Decimal("-1")})
+    result = engine.process(make_portfolio(), Decimal("-1"))
 
     assert result == []
 
 
 @pytest.mark.unit
 def test_uses_suggested_entry_as_fallback_price(engine, aggregator, confluence_checker):
-    """current_prices 에 마켓이 없으면 candidate.suggested_entry 를 가격으로 사용한다."""
+    """price 가 0 이면 candidate.suggested_entry 를 가격으로 사용한다."""
     aggregator._signals["KRW-BTC"] = [MagicMock()]
     candidate = make_candidate(suggested_entry="100000")
     confluence_checker.check.return_value = candidate
     engine.position_sizer.calculate.return_value = make_decision(volume="1")
     portfolio = make_portfolio()  # 동일 인스턴스를 process 와 assert 에 공유
 
-    engine.process(portfolio, {})  # current_prices 에 KRW-BTC 없음
+    engine.process(portfolio, Decimal("0"))  # 0 → candidate.suggested_entry 폴백
 
     engine.position_sizer.calculate.assert_called_once_with(candidate, portfolio, Decimal("100000"))
 
@@ -242,7 +242,7 @@ def test_skips_when_volume_is_zero(engine, aggregator, confluence_checker):
     confluence_checker.check.return_value = make_candidate()
     engine.position_sizer.calculate.return_value = make_decision(volume="0")
 
-    result = engine.process(make_portfolio(), {"KRW-BTC": Decimal("100000")})
+    result = engine.process(make_portfolio(), Decimal("100000"))
 
     assert result == []
 
@@ -260,7 +260,7 @@ def test_returns_decision_when_all_conditions_met(engine, aggregator, confluence
     expected = make_decision(volume="1")
     engine.position_sizer.calculate.return_value = expected
 
-    result = engine.process(make_portfolio(), {"KRW-BTC": Decimal("100000")})
+    result = engine.process(make_portfolio(), Decimal("100000"))
 
     assert result == [expected]
 
@@ -274,7 +274,7 @@ def test_position_sizer_called_with_correct_args(engine, aggregator, confluence_
     engine.position_sizer.calculate.return_value = make_decision(volume="1")
     portfolio = make_portfolio()
 
-    engine.process(portfolio, {"KRW-BTC": Decimal("100000")})
+    engine.process(portfolio, Decimal("100000"))
 
     engine.position_sizer.calculate.assert_called_once_with(candidate, portfolio, Decimal("100000"))
 
@@ -295,13 +295,7 @@ def test_processes_multiple_markets(engine, aggregator, confluence_checker):
         make_decision(market="KRW-ETH", volume="2"),
     ]
 
-    result = engine.process(
-        make_portfolio(),
-        {
-            "KRW-BTC": Decimal("100000"),
-            "KRW-ETH": Decimal("50000"),
-        },
-    )
+    result = engine.process(make_portfolio(), Decimal("100000"))
 
     assert len(result) == 2
 
@@ -309,16 +303,6 @@ def test_processes_multiple_markets(engine, aggregator, confluence_checker):
 @pytest.mark.unit
 def test_partial_markets_skipped(engine, aggregator, confluence_checker):
     """일부 마켓은 통과, 일부는 컨플루언스 미충족으로 건너뛸 때 통과한 것만 반환된다."""
-    aggregator._signals["KRW-BTC"] = [MagicMock()]
-    aggregator._signals["KRW-ETH"] = [MagicMock()]
-
-    # KRW-BTC 는 통과, KRW-ETH 는 컨플루언스 미충족
-    def side_effect(signals):
-        signal = signals[0]
-        if hasattr(signal, "market") and signal.market == "KRW-ETH":
-            return None
-        return make_candidate()
-
     # 시그널에 market 속성 주입
     btc_signal = MagicMock()
     btc_signal.market = "KRW-BTC"
@@ -329,13 +313,7 @@ def test_partial_markets_skipped(engine, aggregator, confluence_checker):
     confluence_checker.check.side_effect = [make_candidate(), None]
     engine.position_sizer.calculate.return_value = make_decision(volume="1")
 
-    result = engine.process(
-        make_portfolio(),
-        {
-            "KRW-BTC": Decimal("100000"),
-            "KRW-ETH": Decimal("50000"),
-        },
-    )
+    result = engine.process(make_portfolio(), Decimal("100000"))
 
     assert len(result) == 1
 
@@ -351,7 +329,7 @@ def test_aggregator_cleared_after_processing(engine, aggregator, confluence_chec
     aggregator._signals["KRW-BTC"] = [MagicMock()]
     confluence_checker.check.return_value = None
 
-    engine.process(make_portfolio(), {})
+    engine.process(make_portfolio(), Decimal("0"))
 
     assert aggregator.signal_count == 0
 
@@ -362,6 +340,6 @@ def test_aggregator_cleared_even_when_no_decisions(engine, aggregator, confluenc
     aggregator._signals["KRW-BTC"] = [MagicMock()]
     confluence_checker.check.return_value = None
 
-    engine.process(make_portfolio(), {})
+    engine.process(make_portfolio(), Decimal("0"))
 
     assert len(aggregator._signals) == 0

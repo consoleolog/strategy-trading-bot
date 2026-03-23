@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import structlog
 
 from ..models import Decision, PortfolioState, RiskLimitsConfig
@@ -39,7 +41,7 @@ class DecisionEngine:
         self.position_sizer = PositionSizer(risk_config)
         self.confluence_checker = confluence_checker
 
-    def process(self, portfolio: PortfolioState, current_prices: dict) -> list[Decision]:
+    def process(self, portfolio: PortfolioState, price: Decimal) -> list[Decision]:
         """집계된 시그널을 처리하여 실행 가능한 Decision 목록을 반환한다.
 
         마켓별로 시그널을 순회하며 다음 단계를 수행한다:
@@ -53,7 +55,8 @@ class DecisionEngine:
 
         Args:
             portfolio: 현재 포트폴리오 상태. 보유 포지션 확인 및 수량 산정에 사용.
-            current_prices: 마켓 코드 → 현재 가격 매핑 딕셔너리.
+            price: 거래 실행에 사용할 현재 가격. 0 이하이면 ``candidate.suggested_entry`` 를
+                폴백으로 사용한다.
 
         Returns:
             실행 대기 상태(PENDING)의 :class:`~models.Decision` 목록.
@@ -71,8 +74,8 @@ class DecisionEngine:
             if not candidate:
                 continue
 
-            # current_prices 에 없으면 거래 후보의 제안 진입가를 폴백으로 사용
-            price = current_prices.get(market, candidate.suggested_entry)
+            # price 가 0 이하이면 거래 후보의 제안 진입가를 폴백으로 사용
+            price = price or candidate.suggested_entry
             if price <= 0:
                 logger.warning("decision.skipped.no_price", market=market)
                 continue
