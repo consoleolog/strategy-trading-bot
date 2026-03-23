@@ -103,7 +103,11 @@ class PositionSizer:
             risk_percent = self.max_risk_per_trade
 
         logger.info(
-            f"Position sized: {candidate.market} vol={volume} value={position_value:.2f} risk={risk_percent:.2%}"
+            "position.sized",
+            market=candidate.market,
+            volume=str(volume),
+            value=float(position_value),
+            risk_percent=round(risk_percent, 6),
         )
 
         return Decision(

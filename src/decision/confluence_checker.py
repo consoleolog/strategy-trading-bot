@@ -79,7 +79,12 @@ class ConfluenceChecker:
         # 익절 가격: 가장 높은 목표가 채택
         suggested_tp = max(take_profits) if take_profits else Decimal("0")
 
-        logger.info(f"Confluence found: {best_direction.value} {best_signals[0].market} ({len(best_signals)} signals")
+        logger.info(
+            "confluence.found",
+            market=best_signals[0].market,
+            direction=best_direction.value,
+            signal_count=len(best_signals),
+        )
 
         return TradeCandidate(
             market=best_signals[0].symbol,
