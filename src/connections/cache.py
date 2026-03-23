@@ -108,11 +108,14 @@ class RedisClient:
 
         dict/list는 JSON으로, str/int/float는 UTF-8로, 그 외 타입은 pickle로 직렬화합니다.
         """
-        if isinstance(value, (dict, list)):
-            return orjson.dumps(value)
-        if isinstance(value, (str, int, float)):
-            return str(value).encode("utf-8")
-        return pickle.dumps(value)
+        try:
+            if isinstance(value, (dict, list)):
+                return orjson.dumps(value)
+            if isinstance(value, (str, int, float)):
+                return str(value).encode("utf-8")
+            return pickle.dumps(value)
+        except Exception:  # nosec B110
+            return pickle.dumps(value)
 
     # -------------------------------------------------------------------------
     # 단일 키 CRUD
