@@ -152,7 +152,7 @@ class UpbitAdapter:
             Timeframe.HOUR: CandleType.HOUR,
             Timeframe.HOUR_4: CandleType.HOUR_4,
         }
-        return timeframe_to_candle_type_map.get(timeframe, Timeframe.HOUR_4)
+        return timeframe_to_candle_type_map.get(timeframe, CandleType.HOUR_4)
 
     # ========================================================================
     # ORDER OPERATIONS
