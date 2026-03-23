@@ -16,12 +16,15 @@ def _make_signal(
     direction: SignalDirection = SignalDirection.LONG,
 ) -> Signal:
     """테스트용 Signal 객체를 생성한다."""
+    from src.utils.constants import MarketRegime
+
     return Signal(
         strategy_id=strategy_id,
         indicator_id="indicator-1",
         type=SignalType.CROSS_OVER,
         value=SignalValue.GOLDEN_CROSS,
         direction=direction,
+        regime=MarketRegime.UNKNOWN,
         market=market,
         timeframe="1h",
     )

@@ -23,6 +23,7 @@ SAMPLE_SIGNAL_DICT = {
     "type": "cross_over",
     "value": "golden_cross",
     "direction": "long",
+    "regime": 0,
     "market": "KRW-BTC",
     "timeframe": "1m",
     "timestamp": "2025-01-01T00:00:00",

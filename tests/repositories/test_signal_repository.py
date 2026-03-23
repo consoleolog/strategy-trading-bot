@@ -16,6 +16,7 @@ _SIGNAL_ROW = {
     "type": "cross_over",
     "value": "golden_cross",
     "direction": "long",
+    "regime": 0,
     "market": "KRW-BTC",
     "timeframe": "1h",
     "timestamp": datetime(2024, 1, 1, 9, 0, 0),
@@ -24,12 +25,15 @@ _SIGNAL_ROW = {
 
 
 def _make_signal(**overrides) -> Signal:
+    from src.utils.constants import MarketRegime
+
     base = {
         "strategy_id": "ma_v1",
         "indicator_id": "ema_5_20",
         "type": SignalType.CROSS_OVER,
         "value": SignalValue.GOLDEN_CROSS,
         "direction": SignalDirection.LONG,
+        "regime": MarketRegime.UNKNOWN,
         "market": "KRW-BTC",
         "timeframe": "1h",
     }
