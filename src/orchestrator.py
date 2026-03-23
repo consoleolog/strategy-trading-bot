@@ -366,7 +366,9 @@ class Orchestrator:
         await self._redis.hset("candles", key, candles)
 
         regime = self._regime_detector.detect(candles)
-        logger.debug("orchestrator.candle.regime_detected", market=candle.code, regime=regime.value)
+        logger.debug(
+            "orchestrator.candle.regime_detected", market=candle.code, timeframe=candle.type.value, regime=regime.value
+        )
 
     async def _on_candle_close(self, candle: Candle) -> None:
         if not self._running:
