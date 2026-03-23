@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import numpy as np
+import structlog
 import talib
 
 from ..models import Candle, PortfolioState
@@ -8,6 +9,8 @@ from ..repositories import SignalRepository
 from ..utils.constants import CandleType, MarketRegime
 from .base_strategy import BaseStrategy
 from .signal_aggregator import SignalAggregator
+
+logger = structlog.get_logger(__name__)
 
 
 class MacdRsiStochasticStrategy(BaseStrategy):
@@ -54,6 +57,15 @@ class MacdRsiStochasticStrategy(BaseStrategy):
         market = candles[-1].code
         candle_type = candles[-1].type
 
+        logger.info(
+            "strategy.evaluate.started",
+            strategy=self.name,
+            market=market,
+            candle_type=candle_type.value,
+            regime=regime.value,
+            candle_count=len(candles),
+        )
+
         macd = self.setup_macd(candles)
         await self.update_macd(macd, market, candle_type, regime)
 
@@ -62,6 +74,8 @@ class MacdRsiStochasticStrategy(BaseStrategy):
 
         stoch = self.setup_stoch(candles)
         await self.update_stoch(stoch, market, candle_type, regime)
+
+        logger.info("strategy.evaluate.completed", strategy=self.name, market=market)
 
     def get_supported_regimes(self) -> list[MarketRegime]:
         """UNKNOWN을 제외한 모든 시장 국면을 반환한다.

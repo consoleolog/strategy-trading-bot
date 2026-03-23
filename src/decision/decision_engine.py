@@ -62,8 +62,11 @@ class DecisionEngine:
             실행 대기 상태(PENDING)의 :class:`~models.Decision` 목록.
         """
         decisions = []
+        all_signals = self.aggregator.get_all_signals()
 
-        for market, signals in self.aggregator.get_all_signals().items():
+        logger.info("decision.process.started", market_count=len(all_signals))
+
+        for market, signals in all_signals.items():
             # 이미 보유 중인 포지션은 중복 진입 방지를 위해 건너뜀
             if market in portfolio.positions:
                 logger.debug("decision.skipped.existing_position", market=market)
@@ -73,6 +76,13 @@ class DecisionEngine:
             candidate = self.confluence_checker.check(signals)
             if not candidate:
                 continue
+
+            logger.info(
+                "decision.confluence.passed",
+                market=market,
+                direction=candidate.direction.value,
+                signal_count=len(signals),
+            )
 
             # price 가 0 이하이면 거래 후보의 제안 진입가를 폴백으로 사용
             price = price or candidate.suggested_entry

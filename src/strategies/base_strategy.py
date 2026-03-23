@@ -172,6 +172,13 @@ class BaseStrategy(ABC):
                 candle_type=candle_type,
                 metadata=metadata,
             )
+            logger.info(
+                "strategy.signal.crossover",
+                indicator=indicator_id,
+                market=market,
+                cross="golden",
+                regime=regime.value,
+            )
             return await self.signal_repository.save(signal)
         # 과거 (one > two) and 현재 (one < two) -> DEAD CROSS
         elif prev_one > prev_two and curr_one < curr_two:
@@ -184,6 +191,13 @@ class BaseStrategy(ABC):
                 market=market,
                 candle_type=candle_type,
                 metadata=metadata,
+            )
+            logger.info(
+                "strategy.signal.crossover",
+                indicator=indicator_id,
+                market=market,
+                cross="dead",
+                regime=regime.value,
             )
             return await self.signal_repository.save(signal)
         else:
@@ -231,6 +245,14 @@ class BaseStrategy(ABC):
                 candle_type=candle_type,
                 metadata=metadata,
             )
+            logger.info(
+                "strategy.signal.level_break",
+                indicator=indicator_id,
+                market=market,
+                level="overbought",
+                value=float(value),
+                regime=regime.value,
+            )
             return await self.signal_repository.save(signal)
         elif value < Decimal(str(oversold)):
             signal = self.create_signal(
@@ -242,6 +264,14 @@ class BaseStrategy(ABC):
                 market=market,
                 candle_type=candle_type,
                 metadata=metadata,
+            )
+            logger.info(
+                "strategy.signal.level_break",
+                indicator=indicator_id,
+                market=market,
+                level="oversold",
+                value=float(value),
+                regime=regime.value,
             )
             return await self.signal_repository.save(signal)
         else:

@@ -1,8 +1,12 @@
 from decimal import Decimal
 
+import structlog
+
 from ..models import RiskContext, RiskRecord, TriggeredRule
 from ..utils.constants import RiskDecision, RiskSeverity
 from .risk_rule import RiskRule
+
+logger = structlog.get_logger(__name__)
 
 
 class RiskEngine:
@@ -41,6 +45,8 @@ class RiskEngine:
         """
         triggered_rules: list[TriggeredRule] = []
 
+        logger.info("risk.evaluate.started", decision_id=decision_id, rule_count=len(self.rules))
+
         # 모든 규칙을 순서대로 실행하고 위반된 규칙만 수집
         for rule in self.rules:
             result = rule.evaluate(context)
@@ -51,6 +57,14 @@ class RiskEngine:
         risk_decision = aggregated_decision["decision"]
         reason = aggregated_decision["reason"]
         recommended_action = aggregated_decision["recommended_action"]
+
+        logger.info(
+            "risk.evaluate.completed",
+            decision_id=decision_id,
+            risk_decision=risk_decision.value,
+            triggered_rule_count=len(triggered_rules),
+            reason=reason,
+        )
 
         # REDUCE_SIZE 결정일 때만 허용 가능한 최대 주문 크기를 계산
         max_allowed_size = None

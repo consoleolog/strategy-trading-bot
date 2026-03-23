@@ -7,7 +7,16 @@ import structlog
 from src.connections import MarketDataFeed, PostgresPool, RedisClient, UpbitAdapter
 from src.decision import DecisionEngine
 from src.decision.confluence_checker import ConfluenceChecker
-from src.models import Candle, Decision, ExecutionResult, PortfolioState, Position, RiskContext, RiskLimitsConfig, Ticker
+from src.models import (
+    Candle,
+    Decision,
+    ExecutionResult,
+    PortfolioState,
+    Position,
+    RiskContext,
+    RiskLimitsConfig,
+    Ticker,
+)
 from src.repositories import SignalRepository
 from src.risk import RiskEngine
 from src.risk.risk_rule import RiskRule
@@ -329,6 +338,16 @@ class Orchestrator:
 
         self._candles_processed += 1
 
+        if self._candles_processed % 100 == 0:
+            logger.info(
+                "orchestrator.heartbeat",
+                candles_processed=self._candles_processed,
+                trades_executed=self._trades_executed,
+                uptime=str(datetime.now() - self._started_at) if self._started_at else None,
+                portfolio_value=str(self._portfolio.total_capital) if self._portfolio else None,
+                open_positions=self._portfolio.num_positions if self._portfolio else 0,
+            )
+
         key = f"{candle.code}:{candle.type}"
         await self._redis.hset("latest_price", key, candle.trade_price)
 
@@ -359,14 +378,33 @@ class Orchestrator:
             candles[-1] = candle
 
             regime = self._regime_detector.current_regime
+            logger.info(
+                "orchestrator.candle_close.started",
+                market=candle.code,
+                candle_type=candle.type.value,
+                regime=regime.value,
+            )
+
             for strategy in self._strategies:
                 if regime not in strategy.get_supported_regimes():
+                    logger.info(
+                        "orchestrator.candle_close.strategy_skipped",
+                        strategy=strategy.name,
+                        market=candle.code,
+                        regime=regime.value,
+                    )
                     continue
 
                 await strategy.evaluate(candles, regime, self._portfolio)
 
             ticker = await self._redis.hget("ticker", key)
             decisions = self._decision_engine.process(self._portfolio, ticker.trade_price)
+
+            logger.info(
+                "orchestrator.candle_close.completed",
+                market=candle.code,
+                decision_count=len(decisions),
+            )
 
             for d in decisions:
                 await self._execute_decision(d)
