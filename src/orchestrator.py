@@ -7,7 +7,7 @@ import structlog
 from connections import MarketDataFeed, PostgresPool, RedisClient, UpbitAdapter
 from decision import DecisionEngine
 from decision.confluence_checker import ConfluenceChecker
-from models import PortfolioState, RiskLimitsConfig, Ticker, Candle
+from models import Candle, Decision, ExecutionResult, PortfolioState, Position, RiskContext, RiskLimitsConfig, Ticker
 from repositories import SignalRepository
 from risk import RiskEngine
 from risk.risk_rule import RiskRule
@@ -21,7 +21,16 @@ from risk.rules import (
 )
 from strategies import MacdRsiStochasticStrategy, RegimeDetector, SignalAggregator
 from strategies.base_strategy import BaseStrategy
-from utils.constants import CandleType, Timeframe
+from utils.constants import (
+    CandleType,
+    DecisionState,
+    ExecutionState,
+    OrderSide,
+    OrderState,
+    RiskDecision,
+    SignalDirection,
+    Timeframe,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -65,6 +74,7 @@ class Orchestrator:
         self._candles_processed = 0
         self._signals_generated = 0
         self._trades_executed = 0
+        self._initial_capital: Decimal | None = None
 
         # Connections
         self._pool: PostgresPool | None = None
@@ -134,6 +144,7 @@ class Orchestrator:
             # 3.1. Portfolio state 초기화 — 거래소에서 KRW 잔고를 조회하여 초기화
             krw = await self._adapter.get_krw()
             total_capital = krw.balance + krw.locked
+            self._initial_capital = total_capital
             self._portfolio = PortfolioState(
                 total_capital=total_capital,
                 available_capital=krw.balance,
@@ -149,6 +160,7 @@ class Orchestrator:
                 types=self.candle_types,
                 on_candle=self._on_candle,
                 on_ticker=self._on_ticker,
+                on_candle_close=self._on_candle_close,
             )
             logger.info("orchestrator.setup.market_feed_ready")
 
@@ -336,3 +348,282 @@ class Orchestrator:
 
         regime = self._regime_detector.detect(candles)
         logger.debug("orchestrator.candle.regime_detected", market=candle.code, regime=regime.value)
+
+    async def _on_candle_close(self, candle: Candle) -> None:
+        if not self._running:
+            return
+
+        try:
+            key = f"{candle.code}:{candle.type}"
+            candles = await self._redis.hget("candles", key)
+            candles[-1] = candle
+
+            regime = self._regime_detector.current_regime
+            for strategy in self._strategies:
+                if regime not in strategy.get_supported_regimes():
+                    continue
+
+                await strategy.evaluate(candles, regime, self._portfolio)
+
+            ticker = await self._redis.hget("ticker", key)
+            decisions = self._decision_engine.process(self._portfolio, ticker.trade_price)
+
+            for d in decisions:
+                await self._execute_decision(d)
+
+        except Exception as e:
+            logger.error("orchestrator.candle_close.error", error=str(e), exc_info=True)
+
+    async def _execute_decision(self, decision: Decision) -> ExecutionResult | None:
+        """리스크 검증 후 주문을 실행하고 ExecutionResult 를 반환한다.
+
+        리스크 엔진이 ALLOW 또는 REDUCE_SIZE 를 반환하면 주문을 실행한다.
+        REDUCE_SIZE 의 경우 max_allowed_size_krw 에 맞게 수량을 줄인 뒤 주문한다.
+        그 외(FORCE_NO_ACTION, EMERGENCY_STOP)는 decision 을 REJECTED 로 표시하고 None 을 반환한다.
+
+        Args:
+            decision: 실행할 거래 결정 객체.
+
+        Returns:
+            주문 실행 성공 시 ExecutionResult, 리스크 거부 또는 주문 실패 시 None.
+        """
+        logger.info(
+            "orchestrator.execute_decision.started",
+            market=decision.market,
+            direction=decision.direction.value,
+            volume=str(decision.volume),
+        )
+
+        initial = self._initial_capital or self._portfolio.total_capital
+        context = RiskContext(
+            system_state="RUNNING",
+            mode=self.mode,
+            open_positions_count=self._portfolio.num_positions,
+            total_position_value_krw=self._portfolio.positions_value,
+            portfolio_value_krw=self._portfolio.total_capital,
+            starting_capital_krw=initial,
+            daily_pnl_krw=self._portfolio.daily_pnl,
+            daily_pnl_percent=Decimal(str(self._portfolio.daily_pnl / initial * 100)) if initial > 0 else Decimal("0"),
+            weekly_pnl_krw=self._portfolio.weekly_pnl,
+            weekly_pnl_percent=Decimal(str(self._portfolio.weekly_pnl / initial * 100))
+            if initial > 0
+            else Decimal("0"),
+            peak_portfolio_value_krw=self._portfolio.high_water_mark,
+            current_drawdown_percent=Decimal(str(self._portfolio.current_drawdown * 100)),
+            proposed_trade_size_krw=decision.volume * decision.entry_price,
+            proposed_trade_risk_percent=Decimal(str(decision.risk_percent * 100)),
+        )
+
+        risk_record = self._risk_engine.evaluate(context, str(decision.decision_id))
+
+        if risk_record.risk_decision in [RiskDecision.ALLOW, RiskDecision.REDUCE_SIZE]:
+            decision.state = DecisionState.APPROVED
+            logger.info("orchestrator.execute_decision.risk_approved", reason=risk_record.reason)
+
+            # REDUCE_SIZE: max_allowed_size_krw 내로 수량 축소
+            if risk_record.risk_decision == RiskDecision.REDUCE_SIZE and risk_record.max_allowed_size_krw:
+                max_vol = Decimal(str(risk_record.max_allowed_size_krw)) / decision.entry_price
+                if max_vol < decision.volume:
+                    logger.info(
+                        "orchestrator.execute_decision.size_reduced",
+                        before=str(decision.volume),
+                        after=str(max_vol),
+                    )
+                    decision.volume = max_vol
+
+            result = await self._place_order(decision)
+
+            if result and result.success:
+                decision.state = DecisionState.EXECUTED
+                self._trades_executed += 1
+                await self._update_portfolio_after_trade(decision, result)
+                logger.info(
+                    "orchestrator.execute_decision.trade_executed",
+                    direction=decision.direction.value,
+                    market=decision.market,
+                    filled_quantity=str(result.filled_quantity),
+                    average_price=str(result.average_price),
+                )
+                return result
+            else:
+                logger.error(
+                    "orchestrator.execute_decision.trade_failed",
+                    market=decision.market,
+                    error=result.error_message if result else "unknown",
+                )
+                return None
+        else:
+            decision.state = DecisionState.REJECTED
+            logger.warning("orchestrator.execute_decision.risk_blocked", reason=risk_record.reason)
+
+            # 발화된 리스크 규칙 목록 기록
+            for rule in risk_record.triggered_rules:
+                logger.warning(
+                    "orchestrator.execute_decision.triggered_rule",
+                    rule_name=rule.rule_name,
+                    message=rule.message,
+                )
+
+            return None
+
+    async def _place_order(self, decision: Decision) -> ExecutionResult | None:
+        """지정가 주문을 거래소에 제출하고 ExecutionResult 를 반환한다.
+
+        SignalDirection 을 OrderSide 로 변환한 뒤 UpbitAdapter.limit_order() 를 호출한다.
+        HOLD 방향은 실행 불가 방향이므로 None 을 반환한다.
+        예외 발생 시 오류를 기록하고 None 을 반환한다.
+
+        Args:
+            decision: 주문에 필요한 마켓·방향·수량·진입가를 담은 결정 객체.
+
+        Returns:
+            주문 성공 시 ExecutionResult, 실패 시 None.
+        """
+        # SignalDirection → OrderSide 매핑 (LONG: 매수, SHORT/CLOSE: 매도)
+        direction_to_side = {
+            SignalDirection.LONG: OrderSide.BID,
+            SignalDirection.SHORT: OrderSide.ASK,
+            SignalDirection.CLOSE: OrderSide.ASK,
+        }
+        side = direction_to_side.get(decision.direction)
+        if side is None:
+            logger.warning(
+                "orchestrator.place_order.unsupported_direction",
+                direction=decision.direction.value,
+                market=decision.market,
+            )
+            return None
+
+        try:
+            order = await self._adapter.limit_order(
+                market=decision.market,
+                side=side,
+                volume=decision.volume,
+                price=decision.entry_price,
+            )
+
+            # OrderState → ExecutionState 매핑
+            order_state_map = {
+                OrderState.DONE: ExecutionState.FILLED,
+                OrderState.CANCEL: ExecutionState.CANCELLED,
+                OrderState.WAIT: ExecutionState.PENDING,
+                OrderState.WATCH: ExecutionState.PENDING,
+            }
+            exec_state = order_state_map.get(order.state, ExecutionState.PENDING)
+
+            # 평균 체결가: 주문 단가 우선, 없으면 진입 예정가 사용
+            average_price = order.price if order.price is not None else decision.entry_price
+
+            result = ExecutionResult(
+                success=True,
+                decision_id=decision.decision_id,
+                order_uuid=order.uuid,
+                filled_quantity=order.executed_volume,
+                average_price=average_price,
+                fee=order.paid_fee,
+                fee_asset="KRW",
+                state=exec_state,
+            )
+            logger.info(
+                "orchestrator.place_order.success",
+                market=decision.market,
+                direction=decision.direction.value,
+                filled_quantity=str(order.executed_volume),
+                average_price=str(average_price),
+                order_uuid=str(order.uuid),
+            )
+            return result
+
+        except Exception as e:
+            logger.error(
+                "orchestrator.place_order.failed",
+                market=decision.market,
+                direction=decision.direction.value,
+                error=str(e),
+            )
+            return None
+
+    async def _update_portfolio_after_trade(self, decision: Decision, result: ExecutionResult) -> None:
+        """체결 결과를 포트폴리오 상태에 반영한다.
+
+        LONG 방향이면 신규 포지션을 개설하고 가용 자본을 차감한다.
+        CLOSE 방향이면 기존 포지션을 청산하고 실현 손익을 PnL 에 반영한다.
+        처리 후 total_capital 과 high_water_mark 를 최신 상태로 갱신한다.
+
+        Args:
+            decision: 체결된 거래 결정 객체.
+            result: 거래소로부터 수신한 체결 결과.
+        """
+        strategy_id = decision.contributing_signals[0].strategy_id if decision.contributing_signals else ""
+        trade_value = result.filled_quantity * result.average_price
+
+        if decision.direction == SignalDirection.LONG:
+            # 신규 롱 포지션 개설
+            position = Position(
+                market=decision.market,
+                direction=decision.direction,
+                entry_price=result.average_price,
+                current_price=result.average_price,
+                volume=result.filled_quantity,
+                stop_loss=decision.stop_loss,
+                take_profit=decision.take_profit,
+                strategy_id=strategy_id,
+            )
+            self._portfolio.positions[decision.market] = position
+            # 매수 대금 + 수수료 차감
+            self._portfolio.available_capital -= trade_value + result.fee
+
+            logger.info(
+                "orchestrator.portfolio.position_opened",
+                market=decision.market,
+                direction=decision.direction.value,
+                volume=str(result.filled_quantity),
+                entry_price=str(result.average_price),
+                fee=str(result.fee),
+            )
+
+        elif decision.direction == SignalDirection.SHORT:
+            logger.warning("orchestrator.portfolio.short_not_supported", market=decision.market)
+
+        elif decision.direction == SignalDirection.CLOSE:
+            # 기존 포지션 청산
+            if decision.market in self._portfolio.positions:
+                pos = self._portfolio.positions[decision.market]
+
+                # 포지션 방향에 따라 실현 손익 계산
+                if pos.direction == SignalDirection.LONG:
+                    pnl = (result.average_price - pos.entry_price) * result.filled_quantity
+                else:
+                    pnl = (pos.entry_price - result.average_price) * result.filled_quantity
+                # 수수료 차감 후 순 손익
+                pnl -= result.fee
+
+                self._portfolio.available_capital += trade_value - result.fee
+                self._portfolio.total_pnl += pnl
+                self._portfolio.daily_pnl += pnl
+                self._portfolio.weekly_pnl += pnl
+
+                del self._portfolio.positions[decision.market]
+
+                logger.info(
+                    "orchestrator.portfolio.position_closed",
+                    market=decision.market,
+                    pnl=str(pnl),
+                    exit_price=str(result.average_price),
+                    fee=str(result.fee),
+                )
+            else:
+                logger.warning(
+                    "orchestrator.portfolio.close_without_position",
+                    market=decision.market,
+                )
+
+        # total_capital 갱신 (가용 현금 + 포지션 평가금액)
+        self._portfolio.total_capital = self._portfolio.available_capital + self._portfolio.positions_value
+
+        # high_water_mark 갱신
+        if self._portfolio.total_capital > self._portfolio.high_water_mark:
+            self._portfolio.high_water_mark = self._portfolio.total_capital
+
+        self._portfolio.trade_count_today += 1
+        self._portfolio.last_updated = datetime.now()

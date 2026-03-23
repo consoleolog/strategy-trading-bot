@@ -5,6 +5,7 @@ import sys
 from datetime import datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
@@ -17,6 +18,8 @@ import src.risk.risk_rule as _src_risk_rule
 import src.risk.rules as _src_risk_rules
 import src.utils as _src_utils
 import src.utils.constants as _src_utils_constants
+from src.models import Decision, ExecutionResult, PortfolioState, Position
+from src.utils.constants import DecisionState, ExecutionState, OrderState, RiskDecision, SignalDirection
 
 sys.modules.setdefault("models", _src_models)
 sys.modules.setdefault("risk", _src_risk)
@@ -72,6 +75,7 @@ def mocked_setup_deps():
     pool = AsyncMock()
     redis = AsyncMock()
     market_feed = MagicMock()
+    market_feed_cls = MagicMock(return_value=market_feed)
     strategy = MagicMock()
     strategy.name = "MacdRsiStochasticStrategy"
 
@@ -80,7 +84,7 @@ def mocked_setup_deps():
         PostgresPool=MagicMock(return_value=pool),
         RedisClient=MagicMock(return_value=redis),
         UpbitAdapter=MagicMock(return_value=adapter),
-        MarketDataFeed=MagicMock(return_value=market_feed),
+        MarketDataFeed=market_feed_cls,
         SignalRepository=MagicMock(),
         RegimeDetector=MagicMock(),
         SignalAggregator=MagicMock(),
@@ -94,6 +98,7 @@ def mocked_setup_deps():
             "redis": redis,
             "adapter": adapter,
             "market_feed": market_feed,
+            "market_feed_cls": market_feed_cls,
             "krw": krw,
             "strategy": strategy,
         }
@@ -123,6 +128,12 @@ def test_init_stores_candle_types():
     """candle_types 가 인스턴스 속성으로 저장된다."""
     orch = make_orchestrator(candle_types=["1m", "5m"])
     assert orch.candle_types == ["1m", "5m"]
+
+
+@pytest.mark.unit
+def test_init_initial_capital_is_none():
+    """초기 _initial_capital 은 None 이다."""
+    assert make_orchestrator()._initial_capital is None
 
 
 @pytest.mark.unit
@@ -275,6 +286,27 @@ async def test_setup_decision_engine_initialized(mocked_setup_deps):
     orch = make_orchestrator()
     await orch.setup()
     assert orch._decision_engine is not None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_setup_stores_initial_capital(mocked_setup_deps):
+    """setup() 후 _initial_capital 이 KRW 총 잔고(balance + locked)로 저장된다."""
+    krw = mocked_setup_deps["krw"]
+    orch = make_orchestrator()
+    await orch.setup()
+    assert orch._initial_capital == krw.balance + krw.locked
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_setup_market_feed_receives_on_candle_close(mocked_setup_deps):
+    """setup() 시 MarketDataFeed 에 on_candle_close 콜백이 전달된다."""
+    orch = make_orchestrator()
+    await orch.setup()
+    _, kwargs = mocked_setup_deps["market_feed_cls"].call_args
+    assert "on_candle_close" in kwargs
+    assert kwargs["on_candle_close"] == orch._on_candle_close
 
 
 # ---------------------------------------------------------------------------
@@ -696,3 +728,571 @@ async def test_on_candle_calls_regime_detector():
     await orch._on_candle(candle)
 
     orch._regime_detector.detect.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 헬퍼 팩토리 — _execute_decision / _place_order / _update_portfolio_after_trade
+# ---------------------------------------------------------------------------
+
+
+def _make_decision(
+    market: str = "KRW-BTC",
+    direction: SignalDirection = SignalDirection.LONG,
+    volume: str = "0.001",
+    entry_price: str = "100000000",
+) -> Decision:
+    """테스트용 Decision 인스턴스를 생성한다."""
+    return Decision(
+        market=market,
+        direction=direction,
+        volume=Decimal(volume),
+        entry_price=Decimal(entry_price),
+        stop_loss=Decimal("95000000"),
+        take_profit=Decimal("110000000"),
+        risk_amount=Decimal("50000"),
+    )
+
+
+def _make_execution_result(
+    decision_id=None,
+    order_uuid=None,
+    filled_quantity: str = "0.001",
+    average_price: str = "100000000",
+    fee: str = "500",
+) -> ExecutionResult:
+    """테스트용 ExecutionResult 인스턴스를 생성한다."""
+    return ExecutionResult(
+        success=True,
+        decision_id=decision_id or uuid4(),
+        order_uuid=order_uuid or uuid4(),
+        filled_quantity=Decimal(filled_quantity),
+        average_price=Decimal(average_price),
+        fee=Decimal(fee),
+        state=ExecutionState.FILLED,
+    )
+
+
+def _make_portfolio(
+    total_capital: str = "10000000",
+    available_capital: str = "10000000",
+) -> PortfolioState:
+    """테스트용 PortfolioState 인스턴스를 생성한다."""
+    return PortfolioState(
+        total_capital=Decimal(total_capital),
+        available_capital=Decimal(available_capital),
+        daily_pnl=Decimal("0"),
+        weekly_pnl=Decimal("0"),
+        total_pnl=Decimal("0"),
+        high_water_mark=Decimal(total_capital),
+    )
+
+
+def _make_risk_record(
+    decision: RiskDecision = RiskDecision.ALLOW,
+    reason: str = "OK",
+    max_allowed_size_krw=None,
+) -> MagicMock:
+    """테스트용 RiskRecord Mock 을 생성한다."""
+    record = MagicMock()
+    record.risk_decision = decision
+    record.reason = reason
+    record.max_allowed_size_krw = max_allowed_size_krw
+    record.triggered_rules = []
+    return record
+
+
+def _make_order_mock(
+    executed_volume: str = "0.001",
+    price: str = "100000000",
+    paid_fee: str = "500",
+    state: OrderState = OrderState.WAIT,
+) -> MagicMock:
+    """테스트용 Order Mock 을 생성한다."""
+    order = MagicMock()
+    order.uuid = uuid4()
+    order.executed_volume = Decimal(executed_volume)
+    order.price = Decimal(price)
+    order.paid_fee = Decimal(paid_fee)
+    order.state = state
+    return order
+
+
+# ---------------------------------------------------------------------------
+# _on_candle_close() — 캔들 종가 처리
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_candle_close_does_nothing_when_not_running():
+    """_running=False 이면 _on_candle_close() 는 아무 동작도 하지 않는다."""
+    orch = make_orchestrator()
+    orch._running = False
+    orch._redis = AsyncMock()
+
+    await orch._on_candle_close(MagicMock())
+
+    orch._redis.hget.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_candle_close_calls_strategy_evaluate_for_matching_regime():
+    """현재 레짐이 전략의 지원 레짐에 포함되면 strategy.evaluate() 가 호출된다."""
+    orch = make_orchestrator()
+    orch._running = True
+
+    candles = [MagicMock(), MagicMock()]
+    ticker = MagicMock()
+    orch._redis = AsyncMock()
+    orch._redis.hget.side_effect = [candles, ticker]
+
+    regime = MagicMock()
+    orch._regime_detector = MagicMock()
+    orch._regime_detector.current_regime = regime
+
+    # get_supported_regimes 는 동기 메서드이므로 MagicMock 사용, evaluate 만 async
+    strategy = MagicMock()
+    strategy.get_supported_regimes.return_value = [regime]
+    strategy.evaluate = AsyncMock()
+    orch._strategies = [strategy]
+
+    orch._decision_engine = MagicMock()
+    orch._decision_engine.process.return_value = []
+    orch._portfolio = MagicMock()
+
+    candle = MagicMock()
+    candle.code = "KRW-BTC"
+    candle.type = MagicMock()
+
+    await orch._on_candle_close(candle)
+
+    strategy.evaluate.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_candle_close_skips_strategy_for_unsupported_regime():
+    """현재 레짐이 전략의 지원 레짐에 없으면 strategy.evaluate() 가 호출되지 않는다."""
+    orch = make_orchestrator()
+    orch._running = True
+
+    candles = [MagicMock(), MagicMock()]
+    ticker = MagicMock()
+    orch._redis = AsyncMock()
+    orch._redis.hget.side_effect = [candles, ticker]
+
+    regime = MagicMock()
+    orch._regime_detector = MagicMock()
+    orch._regime_detector.current_regime = regime
+
+    # get_supported_regimes 는 동기 메서드이므로 MagicMock 사용, evaluate 만 async
+    strategy = MagicMock()
+    strategy.get_supported_regimes.return_value = [MagicMock()]  # 다른 레짐만 지원
+    strategy.evaluate = AsyncMock()
+    orch._strategies = [strategy]
+
+    orch._decision_engine = MagicMock()
+    orch._decision_engine.process.return_value = []
+    orch._portfolio = MagicMock()
+
+    candle = MagicMock()
+    candle.code = "KRW-BTC"
+    candle.type = MagicMock()
+
+    await orch._on_candle_close(candle)
+
+    strategy.evaluate.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_candle_close_calls_execute_decision_for_each_decision():
+    """decision_engine 이 반환한 각 Decision 마다 _execute_decision() 이 호출된다."""
+    orch = make_orchestrator()
+    orch._running = True
+
+    candles = [MagicMock(), MagicMock()]
+    ticker = MagicMock()
+    orch._redis = AsyncMock()
+    orch._redis.hget.side_effect = [candles, ticker]
+
+    orch._regime_detector = MagicMock()
+    orch._strategies = []
+    orch._portfolio = MagicMock()
+
+    d1, d2 = MagicMock(), MagicMock()
+    orch._decision_engine = MagicMock()
+    orch._decision_engine.process.return_value = [d1, d2]
+
+    orch._execute_decision = AsyncMock(return_value=None)
+
+    candle = MagicMock()
+    candle.code = "KRW-BTC"
+    candle.type = MagicMock()
+
+    await orch._on_candle_close(candle)
+
+    assert orch._execute_decision.await_count == 2
+
+
+# ---------------------------------------------------------------------------
+# _execute_decision() — 리스크 검증 및 주문 실행
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_decision_calls_risk_engine():
+    """_execute_decision() 이 risk_engine.evaluate() 를 호출한다."""
+    orch = make_orchestrator()
+    orch._initial_capital = Decimal("10000000")
+    orch._portfolio = _make_portfolio()
+    orch._risk_engine = MagicMock()
+    orch._risk_engine.evaluate.return_value = _make_risk_record(RiskDecision.ALLOW)
+    orch._place_order = AsyncMock(return_value=None)
+
+    await orch._execute_decision(_make_decision())
+
+    orch._risk_engine.evaluate.assert_called_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_decision_sets_state_executed_on_success():
+    """주문 성공 시 decision.state 가 EXECUTED 로 설정된다."""
+    orch = make_orchestrator()
+    orch._initial_capital = Decimal("10000000")
+    orch._portfolio = _make_portfolio()
+    orch._risk_engine = MagicMock()
+    orch._risk_engine.evaluate.return_value = _make_risk_record(RiskDecision.ALLOW)
+    orch._place_order = AsyncMock(return_value=_make_execution_result())
+    orch._update_portfolio_after_trade = AsyncMock()
+
+    decision = _make_decision()
+    await orch._execute_decision(decision)
+
+    assert decision.state == DecisionState.EXECUTED
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_decision_increments_trades_executed_on_success():
+    """주문 성공 시 _trades_executed 카운터가 1 증가한다."""
+    orch = make_orchestrator()
+    orch._initial_capital = Decimal("10000000")
+    orch._portfolio = _make_portfolio()
+    orch._risk_engine = MagicMock()
+    orch._risk_engine.evaluate.return_value = _make_risk_record(RiskDecision.ALLOW)
+    orch._place_order = AsyncMock(return_value=_make_execution_result())
+    orch._update_portfolio_after_trade = AsyncMock()
+
+    await orch._execute_decision(_make_decision())
+
+    assert orch._trades_executed == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_decision_calls_update_portfolio_on_success():
+    """주문 성공 시 _update_portfolio_after_trade() 가 호출된다."""
+    orch = make_orchestrator()
+    orch._initial_capital = Decimal("10000000")
+    orch._portfolio = _make_portfolio()
+    orch._risk_engine = MagicMock()
+    orch._risk_engine.evaluate.return_value = _make_risk_record(RiskDecision.ALLOW)
+    result = _make_execution_result()
+    orch._place_order = AsyncMock(return_value=result)
+    orch._update_portfolio_after_trade = AsyncMock()
+
+    decision = _make_decision()
+    await orch._execute_decision(decision)
+
+    orch._update_portfolio_after_trade.assert_awaited_once_with(decision, result)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_decision_sets_rejected_when_risk_blocks():
+    """리스크 거부(FORCE_NO_ACTION) 시 decision.state 가 REJECTED 로 설정된다."""
+    orch = make_orchestrator()
+    orch._initial_capital = Decimal("10000000")
+    orch._portfolio = _make_portfolio()
+    orch._risk_engine = MagicMock()
+    orch._risk_engine.evaluate.return_value = _make_risk_record(RiskDecision.FORCE_NO_ACTION)
+
+    decision = _make_decision()
+    await orch._execute_decision(decision)
+
+    assert decision.state == DecisionState.REJECTED
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_decision_reduces_volume_on_reduce_size():
+    """REDUCE_SIZE 시 max_allowed_size_krw 에 맞게 decision.volume 이 축소된다."""
+    orch = make_orchestrator()
+    orch._initial_capital = Decimal("10000000")
+    orch._portfolio = _make_portfolio()
+    orch._risk_engine = MagicMock()
+    # max_allowed = 50000 KRW, entry_price = 100000000 → max_vol = 0.0005 < 0.001
+    orch._risk_engine.evaluate.return_value = _make_risk_record(
+        RiskDecision.REDUCE_SIZE, max_allowed_size_krw=Decimal("50000")
+    )
+    orch._place_order = AsyncMock(return_value=None)
+
+    decision = _make_decision(volume="0.001", entry_price="100000000")
+    await orch._execute_decision(decision)
+
+    assert decision.volume == Decimal("50000") / Decimal("100000000")
+
+
+# ---------------------------------------------------------------------------
+# _place_order() — 거래소 주문 제출
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_place_order_long_calls_adapter_with_bid():
+    """LONG 방향이면 adapter.limit_order() 에 side=BID 가 전달된다."""
+    from src.utils.constants import OrderSide
+
+    orch = make_orchestrator()
+    orch._adapter = AsyncMock()
+    orch._adapter.limit_order = AsyncMock(return_value=_make_order_mock())
+
+    await orch._place_order(_make_decision(direction=SignalDirection.LONG))
+
+    _, kwargs = orch._adapter.limit_order.call_args
+    assert kwargs["side"] == OrderSide.BID
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_place_order_close_calls_adapter_with_ask():
+    """CLOSE 방향이면 adapter.limit_order() 에 side=ASK 가 전달된다."""
+    from src.utils.constants import OrderSide
+
+    orch = make_orchestrator()
+    orch._adapter = AsyncMock()
+    orch._adapter.limit_order = AsyncMock(return_value=_make_order_mock())
+
+    await orch._place_order(_make_decision(direction=SignalDirection.CLOSE))
+
+    _, kwargs = orch._adapter.limit_order.call_args
+    assert kwargs["side"] == OrderSide.ASK
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_place_order_hold_returns_none():
+    """HOLD 방향은 지원하지 않으므로 None 을 반환한다."""
+    orch = make_orchestrator()
+    orch._adapter = AsyncMock()
+
+    result = await orch._place_order(_make_decision(direction=SignalDirection.HOLD))
+
+    assert result is None
+    orch._adapter.limit_order.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_place_order_returns_execution_result_on_success():
+    """주문 성공 시 success=True 인 ExecutionResult 를 반환한다."""
+    orch = make_orchestrator()
+    orch._adapter = AsyncMock()
+    orch._adapter.limit_order = AsyncMock(return_value=_make_order_mock())
+
+    result = await orch._place_order(_make_decision())
+
+    assert result is not None
+    assert result.success is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_place_order_uses_entry_price_when_order_price_is_none():
+    """order.price 가 None 이면 decision.entry_price 를 average_price 폴백으로 사용한다."""
+    orch = make_orchestrator()
+    orch._adapter = AsyncMock()
+    order = _make_order_mock(price="100000000")
+    order.price = None  # 가격 없음 — 폴백 적용
+    orch._adapter.limit_order = AsyncMock(return_value=order)
+
+    decision = _make_decision(entry_price="99000000")
+    result = await orch._place_order(decision)
+
+    assert result.average_price == Decimal("99000000")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_place_order_returns_none_on_exception():
+    """adapter.limit_order() 에서 예외가 발생하면 None 을 반환한다."""
+    orch = make_orchestrator()
+    orch._adapter = AsyncMock()
+    orch._adapter.limit_order = AsyncMock(side_effect=RuntimeError("거래소 오류"))
+
+    result = await orch._place_order(_make_decision())
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _update_portfolio_after_trade() — 포트폴리오 상태 갱신
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_portfolio_long_adds_position():
+    """LONG 체결 후 portfoliop.positions 에 새 포지션이 추가된다."""
+    orch = make_orchestrator()
+    orch._portfolio = _make_portfolio()
+
+    decision = _make_decision(market="KRW-BTC", direction=SignalDirection.LONG)
+    result = _make_execution_result()
+    await orch._update_portfolio_after_trade(decision, result)
+
+    assert "KRW-BTC" in orch._portfolio.positions
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_portfolio_long_deducts_available_capital():
+    """LONG 체결 후 available_capital 이 (체결금액 + 수수료) 만큼 감소한다."""
+    orch = make_orchestrator()
+    orch._portfolio = _make_portfolio(available_capital="10000000")
+
+    result = _make_execution_result(filled_quantity="0.001", average_price="100000000", fee="500")
+    expected = Decimal("10000000") - Decimal("0.001") * Decimal("100000000") - Decimal("500")
+
+    await orch._update_portfolio_after_trade(_make_decision(direction=SignalDirection.LONG), result)
+
+    assert orch._portfolio.available_capital == expected
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_portfolio_close_removes_position():
+    """CLOSE 체결 후 portfolio.positions 에서 해당 마켓 포지션이 삭제된다."""
+    orch = make_orchestrator()
+    orch._portfolio = _make_portfolio()
+    orch._portfolio.positions["KRW-BTC"] = Position(
+        market="KRW-BTC",
+        direction=SignalDirection.LONG,
+        entry_price=Decimal("90000000"),
+        current_price=Decimal("100000000"),
+        volume=Decimal("0.001"),
+        stop_loss=Decimal("85000000"),
+        take_profit=Decimal("110000000"),
+        strategy_id="test",
+    )
+
+    decision = _make_decision(market="KRW-BTC", direction=SignalDirection.CLOSE)
+    await orch._update_portfolio_after_trade(decision, _make_execution_result())
+
+    assert "KRW-BTC" not in orch._portfolio.positions
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_portfolio_close_updates_pnl():
+    """CLOSE 체결 후 total_pnl / daily_pnl / weekly_pnl 이 실현 손익만큼 증가한다."""
+    orch = make_orchestrator()
+    orch._portfolio = _make_portfolio()
+    orch._portfolio.positions["KRW-BTC"] = Position(
+        market="KRW-BTC",
+        direction=SignalDirection.LONG,
+        entry_price=Decimal("90000000"),
+        current_price=Decimal("100000000"),
+        volume=Decimal("0.001"),
+        stop_loss=Decimal("85000000"),
+        take_profit=Decimal("110000000"),
+        strategy_id="test",
+    )
+
+    result = _make_execution_result(filled_quantity="0.001", average_price="100000000", fee="500")
+    # pnl = (100000000 - 90000000) * 0.001 - 500 = 10000 - 500 = 9500
+    expected_pnl = Decimal("9500")
+
+    await orch._update_portfolio_after_trade(_make_decision(direction=SignalDirection.CLOSE), result)
+
+    assert orch._portfolio.total_pnl == expected_pnl
+    assert orch._portfolio.daily_pnl == expected_pnl
+    assert orch._portfolio.weekly_pnl == expected_pnl
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_portfolio_close_without_position_does_not_raise():
+    """CLOSE 대상 포지션이 없어도 예외가 발생하지 않는다."""
+    orch = make_orchestrator()
+    orch._portfolio = _make_portfolio()  # positions 비어 있음
+
+    decision = _make_decision(market="KRW-BTC", direction=SignalDirection.CLOSE)
+    await orch._update_portfolio_after_trade(decision, _make_execution_result())
+    # 예외 없이 완료되어야 함
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_portfolio_short_does_not_modify_positions():
+    """SHORT 방향은 미구현이므로 positions 에 변화가 없다."""
+    orch = make_orchestrator()
+    orch._portfolio = _make_portfolio()
+
+    decision = _make_decision(direction=SignalDirection.SHORT)
+    await orch._update_portfolio_after_trade(decision, _make_execution_result())
+
+    assert len(orch._portfolio.positions) == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_portfolio_updates_total_capital():
+    """체결 후 total_capital 이 available_capital + positions_value 로 갱신된다."""
+    orch = make_orchestrator()
+    orch._portfolio = _make_portfolio(total_capital="10000000", available_capital="10000000")
+
+    decision = _make_decision(direction=SignalDirection.LONG)
+    result = _make_execution_result(filled_quantity="0.001", average_price="100000000", fee="500")
+    await orch._update_portfolio_after_trade(decision, result)
+
+    expected = orch._portfolio.available_capital + orch._portfolio.positions_value
+    assert orch._portfolio.total_capital == expected
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_portfolio_updates_high_water_mark():
+    """total_capital 이 high_water_mark 를 초과하면 high_water_mark 가 갱신된다."""
+    orch = make_orchestrator()
+    # available_capital 이 충분히 커서 total_capital 이 high_water_mark 를 넘도록 설정
+    orch._portfolio = _make_portfolio(total_capital="20000000", available_capital="20000000")
+    orch._portfolio.high_water_mark = Decimal("1")  # 매우 낮은 기존 고점
+
+    await orch._update_portfolio_after_trade(
+        _make_decision(direction=SignalDirection.LONG),
+        _make_execution_result(),
+    )
+
+    assert orch._portfolio.high_water_mark == orch._portfolio.total_capital
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_portfolio_increments_trade_count():
+    """체결 후 trade_count_today 가 1 증가한다."""
+    orch = make_orchestrator()
+    orch._portfolio = _make_portfolio()
+
+    before = orch._portfolio.trade_count_today
+    await orch._update_portfolio_after_trade(
+        _make_decision(direction=SignalDirection.LONG),
+        _make_execution_result(),
+    )
+
+    assert orch._portfolio.trade_count_today == before + 1
