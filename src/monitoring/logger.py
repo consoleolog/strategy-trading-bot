@@ -7,6 +7,8 @@ from pathlib import Path
 
 import structlog
 
+from .filters import IgnorePortScannersFilter
+
 
 class StructuredLogger:
     def __init__(self, name: str = "root", config: dict | None = None):
@@ -86,6 +88,7 @@ class StructuredLogger:
                     foreign_pre_chain=shared_processors,
                 )
             )
+            console_handler.addFilter(IgnorePortScannersFilter())
             root_logger.addHandler(console_handler)
 
         # File handler
@@ -102,6 +105,7 @@ class StructuredLogger:
                     foreign_pre_chain=shared_processors,
                 )
             )
+            file_handler.addFilter(IgnorePortScannersFilter())
             root_logger.addHandler(file_handler)
 
             # 에러 로그는 따로 관리
