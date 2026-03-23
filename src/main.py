@@ -7,6 +7,9 @@ from pathlib import Path
 import structlog
 import yaml
 
+# 프로젝트 루트를 sys.path에 추가 — src.X 형태의 절대 import 활성화
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from src.monitoring import StructuredLogger
 from src.orchestrator import Orchestrator
 
