@@ -1,5 +1,6 @@
 """Orchestrator 단위 테스트."""
 
+import asyncio
 import sys
 from datetime import datetime
 from decimal import Decimal
@@ -14,11 +15,15 @@ import src.models as _src_models
 import src.risk as _src_risk
 import src.risk.risk_rule as _src_risk_rule
 import src.risk.rules as _src_risk_rules
+import src.utils as _src_utils
+import src.utils.constants as _src_utils_constants
 
 sys.modules.setdefault("models", _src_models)
 sys.modules.setdefault("risk", _src_risk)
 sys.modules.setdefault("risk.risk_rule", _src_risk_rule)
 sys.modules.setdefault("risk.rules", _src_risk_rules)
+sys.modules.setdefault("utils", _src_utils)
+sys.modules.setdefault("utils.constants", _src_utils_constants)
 
 _STUB_MODULES = [
     "connections",
@@ -467,3 +472,227 @@ async def test_shutdown_runtime_zero_when_started_at_none():
     orch._started_at = None
 
     await orch.shutdown()  # 예외 없이 완료되어야 함
+
+
+# ---------------------------------------------------------------------------
+# run() — 중복 실행 방지
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_does_not_start_when_already_running():
+    """_running=True 이면 run() 은 조기 반환하여 feed.start() 를 호출하지 않는다."""
+    orch = make_orchestrator()
+    orch._running = True
+    orch._pool = AsyncMock()  # setup() 스킵 조건
+    orch._market_feed = AsyncMock()
+
+    await orch.run()
+
+    orch._market_feed.start.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_sets_running_true_and_records_started_at(mocked_setup_deps):
+    """run() 호출 시 _running=True 로 설정되고 _started_at 이 기록된다."""
+    orch = make_orchestrator()
+    await orch.setup()
+
+    feed = mocked_setup_deps["market_feed"]
+    feed.start = AsyncMock()
+
+    await orch.run()
+
+    assert orch._started_at is not None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_calls_setup_when_pool_is_none(mocked_setup_deps):
+    """_pool 이 None 이면 run() 이 setup() 을 자동으로 호출한다."""
+    orch = make_orchestrator()
+
+    mocked_setup_deps["market_feed"].start = AsyncMock()
+
+    await orch.run()
+
+    assert orch._pool is not None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_raises_when_setup_fails():
+    """setup() 이 False 를 반환하면 RuntimeError 가 발생한다."""
+    pool_mock = AsyncMock()
+    pool_mock.connect.side_effect = ConnectionError("DB 실패")
+
+    with patch("src.orchestrator.PostgresPool", return_value=pool_mock):
+        orch = make_orchestrator()
+        with pytest.raises(RuntimeError):
+            await orch.run()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_calls_shutdown_on_cancelled_error(mocked_setup_deps):
+    """CancelledError 발생 시 finally 블록에서 shutdown() 이 호출된다."""
+    orch = make_orchestrator()
+    await orch.setup()
+
+    mocked_setup_deps["market_feed"].start = AsyncMock(side_effect=asyncio.CancelledError())
+
+    await orch.run()
+
+    assert orch._running is False  # shutdown() 이 호출되어 False 로 변경됨
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_calls_shutdown_on_unexpected_error(mocked_setup_deps):
+    """예상치 못한 예외 발생 시 finally 블록에서 shutdown() 이 호출된다."""
+    orch = make_orchestrator()
+    await orch.setup()
+
+    mocked_setup_deps["market_feed"].start = AsyncMock(side_effect=RuntimeError("피드 오류"))
+
+    await orch.run()
+
+    assert orch._running is False  # shutdown() 이 호출되어 False 로 변경됨
+
+
+# ---------------------------------------------------------------------------
+# _on_ticker() — 실시간 Ticker 캐시
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_ticker_stores_to_redis():
+    """_running=True 일 때 _on_ticker() 가 Redis 에 ticker 를 저장한다."""
+    orch = make_orchestrator()
+    orch._running = True
+    orch._redis = AsyncMock()
+
+    ticker = MagicMock()
+    ticker.code = "KRW-BTC"
+    ticker.type = "trade"
+
+    await orch._on_ticker(ticker)
+
+    orch._redis.hset.assert_awaited_once_with("ticker", "KRW-BTC:trade", ticker)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_ticker_does_nothing_when_not_running():
+    """_running=False 이면 _on_ticker() 는 Redis 에 저장하지 않는다."""
+    orch = make_orchestrator()
+    orch._running = False
+    orch._redis = AsyncMock()
+
+    ticker = MagicMock()
+    ticker.code = "KRW-BTC"
+    ticker.type = "trade"
+
+    await orch._on_ticker(ticker)
+
+    orch._redis.hset.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _on_candle() — 캔들 수신 및 레짐 감지
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_candle_increments_counter():
+    """_on_candle() 호출 시 _candles_processed 가 1 증가한다."""
+    from src.utils.constants import CandleType
+
+    orch = make_orchestrator()
+    orch._running = True
+    orch._redis = AsyncMock()
+    orch._adapter = AsyncMock()
+    orch._adapter.get_candles = AsyncMock(return_value=[MagicMock(), MagicMock()])
+    orch._regime_detector = MagicMock()
+    orch._regime_detector.detect.return_value = MagicMock(value="BULL")
+
+    candle = MagicMock()
+    candle.code = "KRW-BTC"
+    candle.type = CandleType.HOUR_4
+    candle.trade_price = Decimal("100000")
+
+    await orch._on_candle(candle)
+
+    assert orch._candles_processed == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_candle_does_nothing_when_not_running():
+    """_running=False 이면 _on_candle() 은 아무 동작도 하지 않는다."""
+    orch = make_orchestrator()
+    orch._running = False
+    orch._redis = AsyncMock()
+
+    candle = MagicMock()
+    await orch._on_candle(candle)
+
+    orch._redis.hset.assert_not_awaited()
+    assert orch._candles_processed == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_candle_stores_updated_candles_to_redis():
+    """candles[-1] 교체 후 Redis 에 저장하여 최신 캔들이 반영된다."""
+    from src.utils.constants import CandleType
+
+    orch = make_orchestrator()
+    orch._running = True
+    orch._redis = AsyncMock()
+
+    old_last = MagicMock()
+    candles = [MagicMock(), old_last]
+    orch._adapter = AsyncMock()
+    orch._adapter.get_candles = AsyncMock(return_value=candles)
+    orch._regime_detector = MagicMock()
+    orch._regime_detector.detect.return_value = MagicMock(value="SIDEWAYS")
+
+    candle = MagicMock()
+    candle.code = "KRW-BTC"
+    candle.type = CandleType.HOUR_4
+    candle.trade_price = Decimal("105000")
+
+    await orch._on_candle(candle)
+
+    # candles[-1] 이 수신 캔들로 교체된 상태로 Redis 저장 확인
+    stored_candles = orch._redis.hset.call_args_list[-1][0][2]
+    assert stored_candles[-1] is candle
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_candle_calls_regime_detector():
+    """_on_candle() 이 regime_detector.detect() 를 호출한다."""
+    from src.utils.constants import CandleType
+
+    orch = make_orchestrator()
+    orch._running = True
+    orch._redis = AsyncMock()
+    orch._adapter = AsyncMock()
+    orch._adapter.get_candles = AsyncMock(return_value=[MagicMock(), MagicMock()])
+    orch._regime_detector = MagicMock()
+    orch._regime_detector.detect.return_value = MagicMock(value="BEAR")
+
+    candle = MagicMock()
+    candle.code = "KRW-BTC"
+    candle.type = CandleType.MINUTE_1  # HOUR_4 외 분기 — else 경로 실행
+    candle.trade_price = Decimal("90000")
+
+    await orch._on_candle(candle)
+
+    orch._regime_detector.detect.assert_called_once()

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -6,7 +7,7 @@ import structlog
 from connections import MarketDataFeed, PostgresPool, RedisClient, UpbitAdapter
 from decision import DecisionEngine
 from decision.confluence_checker import ConfluenceChecker
-from models import PortfolioState, RiskLimitsConfig
+from models import PortfolioState, RiskLimitsConfig, Ticker, Candle
 from repositories import SignalRepository
 from risk import RiskEngine
 from risk.risk_rule import RiskRule
@@ -20,6 +21,7 @@ from risk.rules import (
 )
 from strategies import MacdRsiStochasticStrategy, RegimeDetector, SignalAggregator
 from strategies.base_strategy import BaseStrategy
+from utils.constants import CandleType, Timeframe
 
 logger = structlog.get_logger(__name__)
 
@@ -55,7 +57,7 @@ class Orchestrator:
         self.mode = mode
         self.markets = markets
         self.candle_types = candle_types
-        self.config = config or config
+        self.config = config or {}
 
         # 런타임 상태
         self._running = False
@@ -145,6 +147,8 @@ class Orchestrator:
             self._market_feed = MarketDataFeed(
                 codes=self.markets,
                 types=self.candle_types,
+                on_candle=self._on_candle,
+                on_ticker=self._on_ticker,
             )
             logger.info("orchestrator.setup.market_feed_ready")
 
@@ -254,3 +258,81 @@ class Orchestrator:
             trades_executed=self._trades_executed,
             final_portfolio=str(self._portfolio.total_capital) if self._portfolio else None,
         )
+
+    async def run(self) -> None:
+        """오케스트레이터를 시작하고 시장 데이터 피드를 구동한다.
+
+        아직 setup() 이 완료되지 않은 경우 자동으로 호출한다.
+        피드가 종료(정상 또는 예외)되면 항상 shutdown() 을 호출한다.
+
+        Raises:
+            RuntimeError: setup() 이 실패한 경우.
+        """
+        if self._running:
+            logger.warning("orchestrator.run.already_running")
+            return  # Bug fix: 이미 실행 중이면 중복 시작 방지를 위해 조기 반환
+
+        # setup() 이 아직 호출되지 않은 경우 자동 초기화
+        if self._pool is None:
+            success = await self.setup()
+            if not success:
+                raise RuntimeError("Failed to setup orchestrator")
+
+        self._running = True
+        self._started_at = datetime.now()
+
+        # 시장 데이터 피드 구동 — 취소 또는 오류 발생 시 shutdown() 보장
+        try:
+            await self._market_feed.start()
+        except asyncio.CancelledError:
+            logger.info("orchestrator.run.feed_cancelled")
+        except Exception as e:
+            logger.error("orchestrator.run.feed_error", error=str(e))
+        finally:
+            await self.shutdown()
+
+    async def _on_ticker(self, ticker: Ticker) -> None:
+        """실시간 Ticker 수신 콜백 — Redis 에 최신 Ticker 를 캐시한다.
+
+        Args:
+            ticker: 수신된 실시간 Ticker 데이터.
+        """
+        if not self._running:
+            return
+
+        key = f"{ticker.code}:{ticker.type}"
+        await self._redis.hset("ticker", key, ticker)
+
+    async def _on_candle(self, candle: Candle) -> None:
+        """실시간 Candle 수신 콜백 — 캔들을 캐시하고 레짐을 감지한다.
+
+        거래소에서 과거 캔들 목록을 조회한 뒤 마지막 항목을 수신된 캔들로 교체하여
+        최신 가격이 반영된 상태로 Redis 에 저장하고 레짐 감지를 수행한다.
+
+        Args:
+            candle: 수신된 실시간 Candle 데이터.
+        """
+        if not self._running:
+            return
+
+        self._candles_processed += 1
+
+        key = f"{candle.code}:{candle.type}"
+        await self._redis.hset("latest_price", key, candle.trade_price)
+
+        if candle.type == CandleType.HOUR_4:
+            candles = await self._adapter.get_candles(
+                market=candle.code,
+                timeframe=Timeframe.HOUR_4,
+            )
+        else:
+            candles = await self._adapter.get_candles(
+                market=candle.code,
+                timeframe=Timeframe.DAY,
+            )
+
+        candles[-1] = candle
+        await self._redis.hset("candles", key, candles)
+
+        regime = self._regime_detector.detect(candles)
+        logger.debug("orchestrator.candle.regime_detected", market=candle.code, regime=regime.value)
