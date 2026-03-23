@@ -1,0 +1,121 @@
+@startuml signal_flow
+title Signal → TradeCandidate → Decision (신호 처리 흐름)
+
+' ── Base ─────────────────────────────────────────────────────
+abstract class Base {
+    + to_dict() : dict
+    + to_json(**kwargs) : str
+    + {static} from_dict(data: dict) : Self
+    + {static} from_json(json_str: str) : Self
+}
+
+' ── Signal ───────────────────────────────────────────────────
+class Signal {
+    + strategy_id : str
+    + indicator_id : str
+    + type : SignalType
+    + value : SignalValue
+    + direction : SignalDirection
+    + regime : MarketRegime
+    + market : str
+    + timeframe : str
+    + timestamp : datetime
+    + metadata : dict
+}
+
+' ── TradeCandidate ───────────────────────────────────────────
+class TradeCandidate {
+    + market : str
+    + direction : SignalDirection
+    + contributing_signals : list[Signal]
+    + suggested_entry : Decimal
+    + suggested_stop_loss : Decimal
+    + suggested_take_profit : Decimal
+    + timestamp : datetime
+}
+
+' ── Decision ─────────────────────────────────────────────────
+class Decision {
+    + decision_id : UUID
+    + market : str
+    + direction : SignalDirection
+    + volume : Decimal
+    + entry_price : Decimal
+    + stop_loss : Decimal
+    + take_profit : Decimal
+    + risk_amount : Decimal
+    + risk_percent : float
+    + contributing_signals : list[Signal]
+    + state : DecisionState
+}
+
+' ── Enums ────────────────────────────────────────────────────
+enum SignalType {
+    CROSS_OVER
+    THRESHOLD_CROSS
+    LEVEL_BREAK
+}
+
+enum SignalValue {
+    GOLDEN_CROSS
+    DEAD_CROSS
+    OVER_BOUGHT
+    OVER_SOLD
+}
+
+enum SignalDirection {
+    LONG
+    SHORT
+    CLOSE
+    HOLD
+}
+
+enum MarketRegime {
+    UNKNOWN
+    STABLE_BULL
+    END_OF_BULL
+    START_OF_BEAR
+    STABLE_BEAR
+    END_OF_BEAR
+    START_OF_BULL
+}
+
+enum DecisionState {
+    PENDING
+    APPROVED
+    REJECTED
+    EXECUTED
+    CANCELLED
+}
+
+' ── 관계 ─────────────────────────────────────────────────────
+Base <|-- Signal
+Base <|-- TradeCandidate
+Base <|-- Decision
+
+Signal     "1..*" --o  TradeCandidate : contributing_signals
+Signal     "1..*" --o  Decision       : contributing_signals
+
+Signal     --> SignalType
+Signal     --> SignalValue
+Signal     --> SignalDirection
+Signal     --> MarketRegime
+
+TradeCandidate --> SignalDirection
+
+Decision   --> SignalDirection
+Decision   --> DecisionState
+
+note bottom of TradeCandidate
+  ConfluenceChecker 가 여러 Signal을
+  종합하여 생성한다. suggested_entry 등은
+  기여 Signal의 평균/최적값을 사용한다.
+end note
+
+note bottom of Decision
+  PositionSizer 가 TradeCandidate를
+  바탕으로 volume·risk_amount를 산정한다.
+  state 는 PENDING → APPROVED → EXECUTED 로 전이된다.
+end note
+
+@enduml

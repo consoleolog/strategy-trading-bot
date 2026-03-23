@@ -1,0 +1,106 @@
+@startuml risk
+title Risk — RiskContext · RiskRecord · TriggeredRule · RiskLimitsConfig
+
+' ── RiskContext (frozen) ─────────────────────────────────────
+class RiskContext <<frozen>> {
+    ' 시스템 상태
+    + system_state : str
+    + mode : str
+    ' 포지션 현황
+    + open_positions_count : int
+    + total_position_value_krw : Decimal
+    ' 포트폴리오 지표
+    + portfolio_value_krw : Decimal
+    + starting_capital_krw : Decimal
+    ' 손익 현황
+    + daily_pnl_krw : Decimal
+    + daily_pnl_percent : Decimal
+    + weekly_pnl_krw : Decimal
+    + weekly_pnl_percent : Decimal
+    ' 낙폭 추적
+    + peak_portfolio_value_krw : Decimal
+    + current_drawdown_percent : Decimal
+    ' 주문 검토 컨텍스트 (선택)
+    + proposed_trade_size_krw : Decimal | None
+    + proposed_trade_risk_percent : Decimal | None
+    --
+    + total_pnl_percent : Decimal         <<property>>
+    + position_utilization_percent : Decimal <<property>>
+}
+
+' ── TriggeredRule (frozen) ───────────────────────────────────
+class TriggeredRule <<frozen>> {
+    + rule_name : str
+    + severity : RiskSeverity
+    + message : str
+    + suggested_action : str | None
+}
+
+' ── RiskRecord (frozen) ──────────────────────────────────────
+class RiskRecord <<frozen>> {
+    + input_decision_id : str
+    + risk_decision : RiskDecision
+    + reason : str
+    + timestamp : datetime
+    + triggered_rules : list[TriggeredRule]
+    + recommended_action : str | None
+    + max_allowed_size_krw : float | None
+    + config_reference : dict[str, str]
+    --
+    + is_blocked : bool         <<property>>
+    + highest_severity : RiskSeverity | None <<property>>
+}
+
+' ── RiskLimitsConfig (frozen dataclass) ──────────────────────
+class RiskLimitsConfig <<frozen>> {
+    + max_drawdown : float = 0.20
+    + daily_loss_limit : float = 0.05
+    + weekly_loss_limit : float = 0.10
+    + max_position_size : float = 0.40
+    + max_risk_per_trade : float = 0.02
+    + max_positions : int = 5
+    + max_portfolio_exposure : float = 0.40
+}
+
+' ── Enums ────────────────────────────────────────────────────
+enum RiskDecision {
+    ALLOW = "ALLOW"
+    REDUCE_SIZE = "REDUCE_SIZE"
+    FORCE_NO_ACTION = "FORCE_NO_ACTION"
+    EMERGENCY_STOP = "EMERGENCY_STOP"
+}
+
+enum RiskSeverity {
+    INFO = "INFO"
+    WARNING = "WARNING"
+    CRITICAL = "CRITICAL"
+    EMERGENCY = "EMERGENCY"
+}
+
+' ── 관계 ─────────────────────────────────────────────────────
+RiskRecord "1" *-- "0..*" TriggeredRule : triggered_rules
+
+RiskRecord  --> RiskDecision
+TriggeredRule --> RiskSeverity
+
+note right of RiskContext
+  Decision 평가 직전 매번 새로 생성되는
+  불변 스냅샷. RiskEngine.evaluate() 에
+  전달된다.
+end note
+
+note right of RiskRecord
+  RiskEngine 이 모든 규칙을 평가한 뒤
+  생성한다. is_blocked = True 이면
+  Decision 이 REJECTED 처리된다.
+  REDUCE_SIZE 일 때 max_allowed_size_krw
+  기준으로 volume 이 축소된다.
+end note
+
+note right of RiskLimitsConfig
+  Orchestrator 에서 하드코딩 생성 후
+  DecisionEngine(PositionSizer) 과
+  RiskEngine 에 주입된다.
+end note
+
+@enduml

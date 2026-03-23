@@ -1,0 +1,136 @@
+@startuml execution
+title Execution — Order · ExecutionResult · Trade
+
+' ── Base ─────────────────────────────────────────────────────
+abstract class Base {
+    + to_dict() : dict
+    + to_json(**kwargs) : str
+    + {static} from_dict(data: dict) : Self
+    + {static} from_json(json_str: str) : Self
+}
+
+' ── Order ────────────────────────────────────────────────────
+class Order {
+    + uuid : UUID
+    + side : OrderSide
+    + ord_type : OrderType
+    + price : Decimal | None
+    + state : OrderState
+    + market : str
+    + created_at : datetime
+    + volume : Decimal | None
+    + remaining_volume : Decimal
+    + executed_volume : Decimal
+    + trades_count : int
+    + reserved_fee : Decimal
+    + remaining_fee : Decimal
+    + paid_fee : Decimal
+    + locked : Decimal
+    + identifier : str | None
+    + time_in_force : TimeInForce | None
+    + smp_type : SmpType | None
+    + prevented_volume : Decimal | None
+    + prevented_locked : Decimal | None
+}
+
+' ── ExecutionResult ──────────────────────────────────────────
+class ExecutionResult {
+    + success : bool
+    + decision_id : UUID
+    + order_uuid : UUID
+    + filled_quantity : Decimal
+    + average_price : Decimal
+    + fee : Decimal
+    + fee_asset : str
+    + state : ExecutionState
+    + error_message : str | None
+    + timestamp : datetime
+}
+
+' ── Trade ────────────────────────────────────────────────────
+class Trade {
+    + trade_id : UUID
+    + market : str
+    + side : OrderSide
+    + volume : Decimal
+    + price : Decimal
+    + strategy_id : str
+    + order_uuid : UUID
+    + fee : Decimal
+    + fee_asset : str
+    + decision_id : UUID | None
+    + timestamp : datetime
+    --
+    + value : Decimal   <<property>>
+}
+
+' ── Enums ────────────────────────────────────────────────────
+enum OrderSide {
+    BID = "bid"
+    ASK = "ask"
+}
+
+enum OrderType {
+    LIMIT = "limit"
+    PRICE = "price"
+    MARKET = "market"
+    BEST = "best"
+}
+
+enum OrderState {
+    WAIT = "wait"
+    WATCH = "watch"
+    DONE = "done"
+    CANCEL = "cancel"
+}
+
+enum TimeInForce {
+    IOC = "ioc"
+    FOK = "fok"
+    POST_ONLY = "post_only"
+}
+
+enum SmpType {
+    CANCEL_MAKER = "cancel_maker"
+    CANCEL_TAKER = "cancel_taker"
+    REDUCE = "reduce"
+}
+
+enum ExecutionState {
+    FILLED = "FILLED"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    PENDING = "PENDING"
+    CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
+    FAILED = "FAILED"
+}
+
+' ── 관계 ─────────────────────────────────────────────────────
+Base <|-- Order
+Base <|-- ExecutionResult
+Base <|-- Trade
+
+Order          --> OrderSide
+Order          --> OrderType
+Order          --> OrderState
+Order          --> TimeInForce
+Order          --> SmpType
+
+ExecutionResult --> ExecutionState
+
+Trade          --> OrderSide
+
+ExecutionResult "1" ..> Order : order_uuid (거래소 주문 참조)
+
+note right of Order
+  UpbitAdapter.limit_order() 가 반환한다.
+  OrderState.DONE → ExecutionState.FILLED 로
+  매핑하여 ExecutionResult 를 생성한다.
+end note
+
+note right of Trade
+  체결 이력 영구 저장용 레코드.
+  order_uuid 로 Order 를 역추적할 수 있다.
+end note
+
+@enduml

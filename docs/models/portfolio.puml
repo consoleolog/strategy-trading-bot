@@ -1,0 +1,85 @@
+@startuml portfolio
+title Portfolio — PortfolioState · Position · Asset
+
+' ── Base ─────────────────────────────────────────────────────
+abstract class Base {
+    + to_dict() : dict
+    + to_json(**kwargs) : str
+    + {static} from_dict(data: dict) : Self
+    + {static} from_json(json_str: str) : Self
+}
+
+' ── Position ─────────────────────────────────────────────────
+class Position {
+    + market : str
+    + direction : SignalDirection
+    + entry_price : Decimal
+    + current_price : Decimal
+    + volume : Decimal
+    + stop_loss : Decimal
+    + take_profit : Decimal
+    + strategy_id : str
+    + opened_at : datetime
+    --
+    + unrealized_pnl : Decimal      <<property>>
+    + unrealized_pnl_percent : float <<property>>
+    + value : Decimal               <<property>>
+}
+
+' ── PortfolioState ───────────────────────────────────────────
+class PortfolioState {
+    + total_capital : Decimal
+    + available_capital : Decimal
+    + daily_pnl : Decimal
+    + weekly_pnl : Decimal
+    + total_pnl : Decimal
+    + high_water_mark : Decimal
+    + trade_count_today : int
+    + last_updated : datetime
+    + positions : dict[str, Position]
+    --
+    + current_drawdown : float      <<property>>
+    + positions_value : Decimal     <<property>>
+    + num_positions : int           <<property>>
+    + portfolio_exposure : float    <<property>>
+}
+
+' ── Asset (거래소 잔고) ───────────────────────────────────────
+class Asset {
+    + currency : str
+    + balance : Decimal
+    + locked : Decimal
+    + avg_buy_price : Decimal
+    + avg_buy_price_modified : bool
+    + unit_currency : str
+}
+
+' ── Enum ─────────────────────────────────────────────────────
+enum SignalDirection {
+    LONG
+    SHORT
+    CLOSE
+    HOLD
+}
+
+' ── 관계 ─────────────────────────────────────────────────────
+Base <|-- Position
+Base <|-- PortfolioState
+Base <|-- Asset
+
+PortfolioState "1" *-- "0..*" Position : positions\n(market → Position)
+Position --> SignalDirection
+
+note right of PortfolioState
+  positions_value = sum(pos.value)
+  current_drawdown = (hwm - total) / hwm
+  portfolio_exposure = positions_value / total_capital
+end note
+
+note right of Asset
+  Upbit REST API (/v1/accounts) 응답.
+  KRW 잔고 조회 후 PortfolioState
+  초기화에 사용된다.
+end note
+
+@enduml

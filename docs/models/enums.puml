@@ -1,0 +1,137 @@
+@startuml enums
+title utils.constants — Enums
+
+' ── Signal ──────────────────────────────────────────────────
+enum SignalType {
+    CROSS_OVER = "cross_over"
+    THRESHOLD_CROSS = "threshold_cross"
+    LEVEL_BREAK = "level_break"
+}
+
+enum SignalValue {
+    GOLDEN_CROSS = "golden_cross"
+    DEAD_CROSS = "dead_cross"
+    OVER_BOUGHT = "over_bought"
+    OVER_SOLD = "over_sold"
+}
+
+enum SignalDirection {
+    LONG = "long"
+    SHORT = "short"
+    CLOSE = "close"
+    HOLD = "hold"
+}
+
+' ── Decision ─────────────────────────────────────────────────
+enum DecisionState {
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    EXECUTED = "EXECUTED"
+    CANCELLED = "CANCELLED"
+}
+
+' ── ExecutionResult ──────────────────────────────────────────
+enum ExecutionState {
+    FILLED = "FILLED"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    PENDING = "PENDING"
+    CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
+    FAILED = "FAILED"
+}
+
+' ── Order ────────────────────────────────────────────────────
+enum OrderSide {
+    BID = "bid"
+    ASK = "ask"
+}
+
+enum OrderType {
+    LIMIT = "limit"
+    PRICE = "price"
+    MARKET = "market"
+    BEST = "best"
+}
+
+enum OrderState {
+    WAIT = "wait"
+    WATCH = "watch"
+    DONE = "done"
+    CANCEL = "cancel"
+}
+
+enum TimeInForce {
+    IOC = "ioc"
+    FOK = "fok"
+    POST_ONLY = "post_only"
+}
+
+enum SmpType {
+    CANCEL_MAKER = "cancel_maker"
+    CANCEL_TAKER = "cancel_taker"
+    REDUCE = "reduce"
+}
+
+' ── Market data ──────────────────────────────────────────────
+enum CandleType {
+    SECOND = "candle.1s"
+    MINUTE_1 = "candle.1m"
+    MINUTE_3 = "candle.3m"
+    MINUTE_5 = "candle.5m"
+    MINUTE_10 = "candle.10m"
+    MINUTE_15 = "candle.15m"
+    HALF_HOUR = "candle.30m"
+    HOUR = "candle.60m"
+    HOUR_4 = "candle.240m"
+}
+
+enum StreamType {
+    SNAPSHOT = "SNAPSHOT"
+    REALTIME = "REALTIME"
+}
+
+enum ChangeDirection {
+    RISE = "RISE"
+    EVEN = "EVEN"
+    FALL = "FALL"
+}
+
+enum MarketState {
+    PREVIEW = "PREVIEW"
+    ACTIVE = "ACTIVE"
+    DELISTED = "DELISTED"
+}
+
+enum AskBid {
+    ASK = "ASK"
+    BID = "BID"
+}
+
+' ── Strategy ─────────────────────────────────────────────────
+enum MarketRegime {
+    UNKNOWN = 0
+    STABLE_BULL = 1
+    END_OF_BULL = 2
+    START_OF_BEAR = 3
+    STABLE_BEAR = 4
+    END_OF_BEAR = 5
+    START_OF_BULL = 6
+}
+
+' ── Risk ─────────────────────────────────────────────────────
+enum RiskDecision {
+    ALLOW = "ALLOW"
+    REDUCE_SIZE = "REDUCE_SIZE"
+    FORCE_NO_ACTION = "FORCE_NO_ACTION"
+    EMERGENCY_STOP = "EMERGENCY_STOP"
+}
+
+enum RiskSeverity {
+    INFO = "INFO"
+    WARNING = "WARNING"
+    CRITICAL = "CRITICAL"
+    EMERGENCY = "EMERGENCY"
+}
+
+@enduml

@@ -1,0 +1,100 @@
+@startuml overview
+title Models — 전체 관계 개요
+
+' ────────────────────────────────────────────────────────────
+' 공통 기반
+' ────────────────────────────────────────────────────────────
+abstract class Base
+
+' ────────────────────────────────────────────────────────────
+' 시장 데이터
+' ────────────────────────────────────────────────────────────
+package "Market Data" #LightSteelBlue {
+    class Candle
+    class Ticker
+}
+
+' ────────────────────────────────────────────────────────────
+' 신호 처리 파이프라인
+' ────────────────────────────────────────────────────────────
+package "Signal Pipeline" #LightGoldenRodYellow {
+    class Signal
+    class TradeCandidate
+    class Decision
+}
+
+' ────────────────────────────────────────────────────────────
+' 포트폴리오
+' ────────────────────────────────────────────────────────────
+package "Portfolio" #Honeydew {
+    class PortfolioState
+    class Position
+    class Asset
+}
+
+' ────────────────────────────────────────────────────────────
+' 주문 실행
+' ────────────────────────────────────────────────────────────
+package "Execution" #MistyRose {
+    class Order
+    class ExecutionResult
+    class Trade
+}
+
+' ────────────────────────────────────────────────────────────
+' 리스크 관리
+' ────────────────────────────────────────────────────────────
+package "Risk" #Lavender {
+    class RiskContext <<frozen>>
+    class RiskRecord <<frozen>>
+    class TriggeredRule <<frozen>>
+    class RiskLimitsConfig <<frozen>>
+}
+
+' ────────────────────────────────────────────────────────────
+' 상속
+' ────────────────────────────────────────────────────────────
+Base <|-- Candle
+Base <|-- Ticker
+Base <|-- Signal
+Base <|-- TradeCandidate
+Base <|-- Decision
+Base <|-- PortfolioState
+Base <|-- Position
+Base <|-- Asset
+Base <|-- Order
+Base <|-- ExecutionResult
+Base <|-- Trade
+
+' ────────────────────────────────────────────────────────────
+' 주요 연관관계
+' ────────────────────────────────────────────────────────────
+Signal         "1..*" --o TradeCandidate  : contributing_signals
+Signal         "1..*" --o Decision        : contributing_signals
+
+PortfolioState "1" *-- "0..*" Position   : positions
+
+RiskRecord     "1" *-- "0..*" TriggeredRule : triggered_rules
+
+Decision       ..> RiskContext            : 평가 입력
+RiskRecord     ..> Decision               : 판정 결과 반환
+
+Order          ..> ExecutionResult        : order_uuid
+
+' ────────────────────────────────────────────────────────────
+' 처리 흐름 노트
+' ────────────────────────────────────────────────────────────
+note as N1
+  **처리 흐름**
+  Candle/Ticker  →  Strategy.evaluate()
+    → Signal 생성
+    → SignalAggregator 누적
+    → ConfluenceChecker → TradeCandidate
+    → PositionSizer → Decision
+    → RiskEngine(RiskContext) → RiskRecord
+    → UpbitAdapter.limit_order() → Order
+    → ExecutionResult
+    → PortfolioState / Position 갱신
+end note
+
+@enduml
