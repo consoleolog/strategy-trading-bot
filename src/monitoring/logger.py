@@ -7,7 +7,7 @@ from pathlib import Path
 
 import structlog
 
-from .filters import IgnorePortScannersFilter
+from .filters import IgnorePortScannersFilter, IgnoreWebsocketDebugFilter
 
 
 class StructuredLogger:
@@ -89,6 +89,7 @@ class StructuredLogger:
                 )
             )
             console_handler.addFilter(IgnorePortScannersFilter())
+            console_handler.addFilter(IgnoreWebsocketDebugFilter())
             root_logger.addHandler(console_handler)
 
         # File handler
@@ -106,6 +107,7 @@ class StructuredLogger:
                 )
             )
             file_handler.addFilter(IgnorePortScannersFilter())
+            file_handler.addFilter(IgnoreWebsocketDebugFilter())
             root_logger.addHandler(file_handler)
 
             # 에러 로그는 따로 관리
