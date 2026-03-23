@@ -7,8 +7,8 @@ from pathlib import Path
 import structlog
 import yaml
 
-from monitoring import StructuredLogger
-from orchestrator import Orchestrator
+from src.monitoring import StructuredLogger
+from src.orchestrator import Orchestrator
 
 logger = structlog.get_logger(__name__)
 
