@@ -295,7 +295,7 @@ class Orchestrator:
 
         # 시장 데이터 피드 구동 — 취소 또는 오류 발생 시 shutdown() 보장
         try:
-            await self._market_feed.start()
+            await self._market_feed.connect()
         except asyncio.CancelledError:
             logger.info("orchestrator.run.feed_cancelled")
         except Exception as e:
