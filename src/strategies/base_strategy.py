@@ -201,7 +201,11 @@ class BaseStrategy(ABC):
             )
             return await self.signal_repository.save(signal)
         else:
-            return None
+            return await self.signal_repository.find_by_strategy_id_and_indicator_id_and_type(
+                strategy_id=self.name,
+                indicator_id=indicator_id,
+                type=SignalType.CROSS_OVER,
+            )
 
     async def check_level_break(
         self,
@@ -275,7 +279,11 @@ class BaseStrategy(ABC):
             )
             return await self.signal_repository.save(signal)
         else:
-            return None
+            return await self.signal_repository.find_by_strategy_id_and_indicator_id_and_type(
+                strategy_id=self.name,
+                indicator_id=indicator_id,
+                type=SignalType.LEVEL_BREAK,
+            )
 
     @staticmethod
     def calculate_ema(candles: list[Candle], period: int = 9) -> np.ndarray:

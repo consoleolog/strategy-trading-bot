@@ -277,8 +277,10 @@ def _make_strategy_with_mock_repo() -> tuple[BullOnlyStrategy, AsyncMock]:
         timeframe=CandleType.MINUTE_1.value,
     )
     mock_save = AsyncMock(return_value=saved_signal)
+    mock_find = AsyncMock(return_value=None)
     mock_repo = MagicMock(spec=SignalRepository)
     mock_repo.save = mock_save
+    mock_repo.find_by_strategy_id_and_indicator_id_and_type = mock_find
     strategy = BullOnlyStrategy(
         config={"strategy_id": "test_strategy"},
         aggregator=_make_aggregator(),
@@ -336,7 +338,7 @@ async def test_check_crossover_dead_cross_saves_and_returns_signal():
 
 @pytest.mark.unit
 async def test_check_crossover_no_cross_returns_none():
-    """교차가 없으면 None을 반환하고 저장소를 호출하지 않는다."""
+    """교차가 없으면 save를 호출하지 않고, 기존 신호를 조회해 반환한다."""
     strategy, mock_save = _make_strategy_with_mock_repo()
 
     one = np.array([1.0, 1.5])  # 항상 two보다 작음
@@ -352,6 +354,12 @@ async def test_check_crossover_no_cross_returns_none():
     )
 
     mock_save.assert_not_called()
+    mock_find = strategy.signal_repository.find_by_strategy_id_and_indicator_id_and_type
+    mock_find.assert_called_once_with(
+        strategy_id="test_strategy",
+        indicator_id="ema_5_20",
+        type=SignalType.CROSS_OVER,
+    )
     assert result is None
 
 
@@ -468,7 +476,7 @@ async def test_check_level_break_oversold_saves_and_returns_signal():
 
 @pytest.mark.unit
 async def test_check_level_break_within_range_returns_none():
-    """value가 과매수/과매도 범위 안이면 None을 반환하고 저장소를 호출하지 않는다."""
+    """value가 과매수/과매도 범위 안이면 save를 호출하지 않고, 기존 신호를 조회해 반환한다."""
     strategy, mock_save = _make_strategy_with_mock_repo()
 
     result = await strategy.check_level_break(
@@ -482,6 +490,12 @@ async def test_check_level_break_within_range_returns_none():
     )
 
     mock_save.assert_not_called()
+    mock_find = strategy.signal_repository.find_by_strategy_id_and_indicator_id_and_type
+    mock_find.assert_called_once_with(
+        strategy_id="test_strategy",
+        indicator_id="rsi_14",
+        type=SignalType.LEVEL_BREAK,
+    )
     assert result is None
 
 
@@ -527,7 +541,7 @@ async def test_check_level_break_regime_passed_to_signal():
 
 @pytest.mark.unit
 async def test_check_level_break_exact_threshold_returns_none():
-    """value == overbought 또는 value == oversold 이면 None을 반환한다."""
+    """value == overbought 또는 value == oversold 이면 save를 호출하지 않고 기존 신호를 조회해 반환한다."""
     strategy, mock_save = _make_strategy_with_mock_repo()
 
     result_ob = await strategy.check_level_break(
@@ -550,6 +564,8 @@ async def test_check_level_break_exact_threshold_returns_none():
     )
 
     mock_save.assert_not_called()
+    mock_find = strategy.signal_repository.find_by_strategy_id_and_indicator_id_and_type
+    assert mock_find.call_count == 2
     assert result_ob is None
     assert result_os is None
 
