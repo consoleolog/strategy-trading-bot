@@ -1,3 +1,4 @@
+from .order_repository import OrderRepository
 from .signal_repository import SignalRepository
 
-__all__ = ["SignalRepository"]
+__all__ = ["OrderRepository", "SignalRepository"]
