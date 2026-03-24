@@ -2,6 +2,7 @@ from typing import ClassVar
 
 from ..connections.database import PostgresPool
 from ..models.signal import Signal
+from ..utils.constants import SignalType
 from .base_repository import BaseRepository
 
 
@@ -20,3 +21,8 @@ class SignalRepository(BaseRepository[Signal]):
     @property
     def table_name(self) -> str:
         return "signals"
+
+    async def find_by_strategy_id_and_indicator_id_and_type(
+        self, strategy_id: str, indicator_id: str, type: SignalType
+    ):
+        pass
