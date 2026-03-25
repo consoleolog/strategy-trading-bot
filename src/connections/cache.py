@@ -1,4 +1,5 @@
 import pickle  # nosec B403
+import time
 from typing import Any
 
 import orjson
@@ -500,3 +501,55 @@ class RedisClient:
         except Exception as error:
             logger.exception("Cache release_lock 오류", error=str(error))
             return False
+
+
+class TTLCache:
+    """TTL 기반 인메모리 캐시.
+
+    Redis 없이 프로세스 내부에서 단순한 TTL 캐시가 필요할 때 사용합니다.
+    만료된 항목은 ``get`` 호출 시 지연 삭제됩니다.
+    """
+
+    def __init__(self, ttl: int = 300):
+        """TTL 캐시를 초기화합니다.
+
+        Args:
+            ttl: 항목의 기본 만료 시간(초). 기본값 300.
+        """
+        self.ttl = ttl
+        self.cache = {}
+        self.timestamps = {}
+
+    def get(self, key: str) -> Any | None:
+        """키에 해당하는 캐시 값을 반환합니다.
+
+        TTL이 만료된 항목은 삭제 후 None을 반환합니다.
+
+        Args:
+            key: 조회할 캐시 키.
+
+        Returns:
+            유효한 캐시 값, 또는 없거나 만료된 경우 None.
+        """
+        if key in self.cache:
+            if time.time() - self.timestamps[key] < self.ttl:
+                return self.cache[key]
+            else:
+                del self.cache[key]
+                del self.timestamps[key]
+        return None
+
+    def set(self, key: str, value: Any) -> None:
+        """캐시에 값을 저장합니다.
+
+        Args:
+            key: 저장할 캐시 키.
+            value: 저장할 값.
+        """
+        self.cache[key] = value
+        self.timestamps[key] = time.time()
+
+    def clear(self) -> None:
+        """캐시의 모든 항목을 삭제합니다."""
+        self.cache.clear()
+        self.timestamps.clear()

@@ -1,10 +1,11 @@
 import fnmatch
 import pickle
+import time as _time
 from typing import Any
 
 import orjson
 import pytest
-from src.connections.cache import RedisClient
+from src.connections.cache import RedisClient, TTLCache
 
 # ---------------------------------------------------------------------------
 # FakePubSub
@@ -1131,3 +1132,104 @@ class TestReleaseLock:
         """락 해제 실패 시 False를 반환해야 한다."""
         lock = FakeLock(raise_on_release=True)
         assert await connected_client.release_lock(lock) is False
+
+
+# ---------------------------------------------------------------------------
+# TTLCache
+# ---------------------------------------------------------------------------
+
+
+class TestTTLCacheInit:
+    def test_default_ttl(self) -> None:
+        """기본 TTL은 300초여야 한다."""
+        cache = TTLCache()
+        assert cache.ttl == 300
+
+    def test_custom_ttl(self) -> None:
+        """생성자에 전달한 TTL이 저장되어야 한다."""
+        cache = TTLCache(ttl=60)
+        assert cache.ttl == 60
+
+    def test_empty_on_init(self) -> None:
+        """초기화 후 cache와 timestamps가 비어 있어야 한다."""
+        cache = TTLCache()
+        assert cache.cache == {}
+        assert cache.timestamps == {}
+
+
+class TestTTLCacheGet:
+    def test_get_returns_none_for_missing_key(self) -> None:
+        """존재하지 않는 키 조회 시 None을 반환해야 한다."""
+        cache = TTLCache()
+        assert cache.get("missing") is None
+
+    def test_get_returns_value_within_ttl(self) -> None:
+        """TTL 이내의 항목은 저장된 값을 반환해야 한다."""
+        cache = TTLCache(ttl=60)
+        cache.set("k", "v")
+        assert cache.get("k") == "v"
+
+    def test_get_returns_none_after_expiry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """TTL이 지난 항목은 None을 반환해야 한다."""
+        cache = TTLCache(ttl=10)
+        cache.set("k", "v")
+        # 시간을 TTL보다 크게 이동
+        monkeypatch.setattr(_time, "time", lambda: cache.timestamps["k"] + 11)
+        assert cache.get("k") is None
+
+    def test_expired_key_is_deleted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """만료된 항목은 get 이후 캐시에서 제거되어야 한다."""
+        cache = TTLCache(ttl=10)
+        cache.set("k", "v")
+        monkeypatch.setattr(_time, "time", lambda: cache.timestamps["k"] + 11)
+        cache.get("k")
+        assert "k" not in cache.cache
+        assert "k" not in cache.timestamps
+
+    def test_get_various_value_types(self) -> None:
+        """다양한 타입의 값(dict, list, int)이 올바르게 반환되어야 한다."""
+        cache = TTLCache(ttl=60)
+        for key, value in [("d", {"a": 1}), ("l", [1, 2, 3]), ("n", 42)]:
+            cache.set(key, value)
+            assert cache.get(key) == value
+
+
+class TestTTLCacheSet:
+    def test_set_stores_value(self) -> None:
+        """set 호출 후 값이 cache에 저장되어야 한다."""
+        cache = TTLCache()
+        cache.set("k", 123)
+        assert cache.cache["k"] == 123
+
+    def test_set_records_timestamp(self) -> None:
+        """set 호출 시 현재 시각이 timestamps에 기록되어야 한다."""
+        cache = TTLCache()
+        before = _time.time()
+        cache.set("k", "v")
+        after = _time.time()
+        assert before <= cache.timestamps["k"] <= after
+
+    def test_set_overwrites_existing(self) -> None:
+        """같은 키에 set을 두 번 호출하면 최신 값으로 덮어써야 한다."""
+        cache = TTLCache()
+        cache.set("k", "first")
+        cache.set("k", "second")
+        assert cache.get("k") == "second"
+
+
+class TestTTLCacheClear:
+    def test_clear_empties_cache(self) -> None:
+        """clear 후 cache와 timestamps가 비어 있어야 한다."""
+        cache = TTLCache()
+        cache.set("a", 1)
+        cache.set("b", 2)
+        cache.clear()
+        assert cache.cache == {}
+        assert cache.timestamps == {}
+
+    def test_get_after_clear_returns_none(self) -> None:
+        """clear 이후 기존 키 조회 시 None을 반환해야 한다."""
+        cache = TTLCache()
+        cache.set("k", "v")
+        cache.clear()
+        assert cache.get("k") is None
