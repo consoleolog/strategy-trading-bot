@@ -15,7 +15,6 @@ from src.models import (
     Position,
     RiskContext,
     RiskLimitsConfig,
-    Ticker,
 )
 from src.repositories import OrderRepository, SignalRepository
 from src.risk import RiskEngine
@@ -170,7 +169,6 @@ class Orchestrator:
                 codes=self.markets,
                 types=self.candle_types,
                 on_candle=self._on_candle,
-                on_ticker=self._on_ticker,
                 on_candle_close=self._on_candle_close,
             )
             logger.info("orchestrator.setup.market_feed_ready")
@@ -314,18 +312,6 @@ class Orchestrator:
         finally:
             await self.shutdown()
 
-    async def _on_ticker(self, ticker: Ticker) -> None:
-        """실시간 Ticker 수신 콜백 — Redis 에 최신 Ticker 를 캐시한다.
-
-        Args:
-            ticker: 수신된 실시간 Ticker 데이터.
-        """
-        if not self._running:
-            return
-
-        key = f"{ticker.code}:{ticker.type}"
-        await self._redis.hset("ticker", key, ticker)
-
     async def _on_candle(self, candle: Candle) -> None:
         """실시간 Candle 수신 콜백 — 캔들을 캐시하고 레짐을 감지한다.
 
@@ -401,7 +387,7 @@ class Orchestrator:
 
                 await strategy.evaluate(candles, regime, self._portfolio)
 
-            ticker = await self._redis.hget("ticker", key)
+            ticker = await self._adapter.get_ticker(candle.code)
             decisions = self._decision_engine.process(self._portfolio, ticker.trade_price)
 
             logger.info(
@@ -414,7 +400,7 @@ class Orchestrator:
                 await self._execute_decision(d)
 
         except Exception as e:
-            logger.error("orchestrator.candle_close.error", error=str(e), exc_info=True)
+            logger.error("orchestrator.candle_close.error", error=str(e))
 
     async def _execute_decision(self, decision: Decision) -> ExecutionResult | None:
         """리스크 검증 후 주문을 실행하고 ExecutionResult 를 반환한다.
