@@ -17,7 +17,7 @@ from src.models import (
     RiskLimitsConfig,
     Ticker,
 )
-from src.repositories import SignalRepository
+from src.repositories import OrderRepository, SignalRepository
 from src.risk import RiskEngine
 from src.risk.risk_rule import RiskRule
 from src.risk.rules import (
@@ -102,6 +102,7 @@ class Orchestrator:
         self._decision_engine: DecisionEngine | None = None
 
         # Repositories
+        self._order_repository: OrderRepository | None = None
         self._signal_repository: SignalRepository | None = None
 
         # Risk
@@ -138,6 +139,7 @@ class Orchestrator:
             logger.info("orchestrator.setup.postgres_ready")
 
             # 1.1 Repositories 초기화
+            self._order_repository = OrderRepository(pool=self._pool)
             self._signal_repository = SignalRepository(pool=self._pool)
 
             # 2. Redis 초기화
@@ -541,6 +543,7 @@ class Orchestrator:
                 volume=decision.volume,
                 price=decision.entry_price,
             )
+            await self._order_repository.save(order)
 
             # OrderState → ExecutionState 매핑
             order_state_map = {
