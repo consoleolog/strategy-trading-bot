@@ -356,9 +356,9 @@ async def test_check_crossover_no_cross_returns_none():
     mock_save.assert_not_called()
     mock_find = strategy.signal_repository.find_by_strategy_id_and_indicator_id_and_type
     mock_find.assert_called_once_with(
-        strategy_id="test_strategy",
-        indicator_id="ema_5_20",
-        type=SignalType.CROSS_OVER,
+        "test_strategy",
+        "ema_5_20",
+        SignalType.CROSS_OVER,
     )
     assert result is None
 
@@ -492,9 +492,9 @@ async def test_check_level_break_within_range_returns_none():
     mock_save.assert_not_called()
     mock_find = strategy.signal_repository.find_by_strategy_id_and_indicator_id_and_type
     mock_find.assert_called_once_with(
-        strategy_id="test_strategy",
-        indicator_id="rsi_14",
-        type=SignalType.LEVEL_BREAK,
+        "test_strategy",
+        "rsi_14",
+        SignalType.LEVEL_BREAK,
     )
     assert result is None
 
