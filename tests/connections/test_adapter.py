@@ -8,8 +8,12 @@ import pytest
 from src.connections.adapter import UpbitAdapter
 from src.models import Candle, Order
 from src.models.asset import Asset
+from src.models.ticker import Ticker
 from src.utils.constants import (
+    AskBid,
     CandleType,
+    ChangeDirection,
+    MarketState,
     OrderSide,
     OrderType,
     SmpType,
@@ -1065,3 +1069,277 @@ async def test_get_asset_returns_first_match(adapter: UpbitAdapter):
 def test_timeframe_to_candle_type_mapping(timeframe: Timeframe, expected: CandleType):
     """각 Timeframe이 대응하는 CandleType으로 변환된다."""
     assert UpbitAdapter._timeframe_to_candle_type(timeframe) == expected
+
+
+# ---------------------------------------------------------------------------
+# get_tickers / get_ticker
+# ---------------------------------------------------------------------------
+
+_SAMPLE_TICKER_RAW = [
+    {
+        "market": "KRW-BTC",
+        "trade_date": "20250103",
+        "trade_time": "120000",
+        "trade_timestamp": 1735905600000,
+        "opening_price": 143000000.0,
+        "high_price": 145000000.0,
+        "low_price": 142000000.0,
+        "trade_price": 144000000.0,
+        "prev_closing_price": 142500000.0,
+        "change": "RISE",
+        "change_price": 1500000.0,
+        "change_rate": 0.0105,
+        "signed_change_price": 1500000.0,
+        "signed_change_rate": 0.0105,
+        "trade_volume": 0.001,
+        "acc_trade_volume": 35.12,
+        "acc_trade_volume_24h": 70.0,
+        "acc_trade_price": 5000000000.0,
+        "acc_trade_price_24h": 10000000000.0,
+        "highest_52_week_price": 200000000.0,
+        "highest_52_week_date": "2024-01-01",
+        "lowest_52_week_price": 50000000.0,
+        "lowest_52_week_date": "2024-06-01",
+        "market_state": "ACTIVE",
+        "timestamp": 1735905600000,
+        "acc_bid_volume": 0.0,
+        "acc_ask_volume": 0.0,
+    },
+    {
+        "market": "KRW-ETH",
+        "trade_date": "20250103",
+        "trade_time": "120000",
+        "trade_timestamp": 1735905600000,
+        "opening_price": 5000000.0,
+        "high_price": 5200000.0,
+        "low_price": 4900000.0,
+        "trade_price": 5100000.0,
+        "prev_closing_price": 4950000.0,
+        "change": "RISE",
+        "change_price": 150000.0,
+        "change_rate": 0.0303,
+        "signed_change_price": 150000.0,
+        "signed_change_rate": 0.0303,
+        "trade_volume": 0.1,
+        "acc_trade_volume": 100.0,
+        "acc_trade_volume_24h": 200.0,
+        "acc_trade_price": 500000000.0,
+        "acc_trade_price_24h": 1000000000.0,
+        "highest_52_week_price": 7000000.0,
+        "highest_52_week_date": "2024-03-01",
+        "lowest_52_week_price": 2000000.0,
+        "lowest_52_week_date": "2024-09-01",
+        "market_state": "ACTIVE",
+        "timestamp": 1735905600000,
+        "acc_bid_volume": 0.0,
+        "acc_ask_volume": 0.0,
+    },
+]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_returns_list_of_tickers(adapter: UpbitAdapter):
+    """반환값이 Ticker 리스트다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW):
+        result = await adapter.get_tickers(["KRW-BTC", "KRW-ETH"])
+
+    assert isinstance(result, list)
+    assert all(isinstance(t, Ticker) for t in result)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_count_matches_response(adapter: UpbitAdapter):
+    """응답 항목 수와 반환 리스트 길이가 일치한다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW):
+        result = await adapter.get_tickers(["KRW-BTC", "KRW-ETH"])
+
+    assert len(result) == 2
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_calls_correct_endpoint(adapter: UpbitAdapter):
+    """_request()가 /ticker 엔드포인트로 호출된다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW) as mock_req:
+        await adapter.get_tickers(["KRW-BTC"])
+
+    assert mock_req.call_args.args[1] == "/ticker"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_passes_markets_as_comma_joined(adapter: UpbitAdapter):
+    """markets 목록이 쉼표로 연결되어 params에 전달된다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW) as mock_req:
+        await adapter.get_tickers(["KRW-BTC", "KRW-ETH"])
+
+    params = mock_req.call_args.kwargs["params"]
+    assert params["markets"] == "KRW-BTC,KRW-ETH"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_market_mapped_to_code(adapter: UpbitAdapter):
+    """REST 응답의 market 필드가 Ticker.code 로 매핑된다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW):
+        result = await adapter.get_tickers(["KRW-BTC", "KRW-ETH"])
+
+    assert result[0].code == "KRW-BTC"
+    assert result[1].code == "KRW-ETH"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_type_is_ticker(adapter: UpbitAdapter):
+    """Ticker.type 은 'ticker' 고정값이다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW):
+        result = await adapter.get_tickers(["KRW-BTC"])
+
+    assert result[0].type == "ticker"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_stream_type_is_snapshot(adapter: UpbitAdapter):
+    """Ticker.stream_type 은 SNAPSHOT이다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW):
+        result = await adapter.get_tickers(["KRW-BTC"])
+
+    assert result[0].stream_type == StreamType.SNAPSHOT
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_ask_bid_default_is_bid(adapter: UpbitAdapter):
+    """REST API 미제공 ask_bid 필드의 기본값은 AskBid.BID다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW):
+        result = await adapter.get_tickers(["KRW-BTC"])
+
+    assert result[0].ask_bid == AskBid.BID
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_price_fields_are_decimal(adapter: UpbitAdapter):
+    """trade_price 등 가격 필드가 Decimal로 변환된다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW):
+        result = await adapter.get_tickers(["KRW-BTC"])
+
+    t = result[0]
+    assert isinstance(t.trade_price, Decimal)
+    assert isinstance(t.opening_price, Decimal)
+    assert isinstance(t.high_price, Decimal)
+    assert isinstance(t.low_price, Decimal)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_change_is_enum(adapter: UpbitAdapter):
+    """change 필드가 ChangeDirection Enum으로 변환된다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW):
+        result = await adapter.get_tickers(["KRW-BTC"])
+
+    assert result[0].change == ChangeDirection.RISE
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_market_state_is_enum(adapter: UpbitAdapter):
+    """market_state 필드가 MarketState Enum으로 변환된다."""
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=_SAMPLE_TICKER_RAW):
+        result = await adapter.get_tickers(["KRW-BTC"])
+
+    assert result[0].market_state == MarketState.ACTIVE
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_tickers_52week_fields_none_when_missing(adapter: UpbitAdapter):
+    """highest/lowest_52_week 필드가 응답에 없으면 None이다."""
+    raw = [{**_SAMPLE_TICKER_RAW[0]}]
+    del raw[0]["highest_52_week_price"]
+    del raw[0]["highest_52_week_date"]
+    del raw[0]["lowest_52_week_price"]
+    del raw[0]["lowest_52_week_date"]
+
+    with patch.object(adapter, "_request", new_callable=AsyncMock, return_value=raw):
+        result = await adapter.get_tickers(["KRW-BTC"])
+
+    assert result[0].highest_52_week_price is None
+    assert result[0].highest_52_week_date is None
+    assert result[0].lowest_52_week_price is None
+    assert result[0].lowest_52_week_date is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_ticker_returns_single_ticker(adapter: UpbitAdapter):
+    """단건 조회 시 Ticker 인스턴스를 반환한다."""
+    with patch.object(
+        adapter,
+        "get_tickers",
+        new_callable=AsyncMock,
+        return_value=[
+            Ticker(
+                **{
+                    **{f: getattr(Ticker, f, None) for f in []},
+                    "type": "ticker",
+                    "code": "KRW-BTC",
+                    "opening_price": Decimal("143000000"),
+                    "high_price": Decimal("145000000"),
+                    "low_price": Decimal("142000000"),
+                    "trade_price": Decimal("144000000"),
+                    "prev_closing_price": Decimal("142500000"),
+                    "change": ChangeDirection.RISE,
+                    "change_price": Decimal("1500000"),
+                    "signed_change_price": Decimal("1500000"),
+                    "change_rate": Decimal("0.0105"),
+                    "signed_change_rate": Decimal("0.0105"),
+                    "trade_volume": Decimal("0.001"),
+                    "acc_trade_volume": Decimal("35.12"),
+                    "acc_trade_volume_24h": Decimal("70.0"),
+                    "acc_trade_price": Decimal("5000000000"),
+                    "acc_trade_price_24h": Decimal("10000000000"),
+                    "trade_date": "20250103",
+                    "trade_time": "120000",
+                    "trade_timestamp": 1735905600000,
+                    "ask_bid": AskBid.BID,
+                    "acc_ask_volume": Decimal("0"),
+                    "acc_bid_volume": Decimal("0"),
+                    "highest_52_week_price": Decimal("200000000"),
+                    "highest_52_week_date": "2024-01-01",
+                    "lowest_52_week_price": Decimal("50000000"),
+                    "lowest_52_week_date": "2024-06-01",
+                    "market_state": MarketState.ACTIVE,
+                    "timestamp": 1735905600000,
+                    "stream_type": StreamType.SNAPSHOT,
+                }
+            )
+        ],
+    ):
+        result = await adapter.get_ticker("KRW-BTC")
+
+    assert isinstance(result, Ticker)
+    assert result.code == "KRW-BTC"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_ticker_passes_market_as_single_element_list(adapter: UpbitAdapter):
+    """get_ticker는 get_tickers를 단일 원소 리스트로 호출한다."""
+    with patch.object(adapter, "get_tickers", new_callable=AsyncMock, return_value=[]) as mock_tickers:
+        await adapter.get_ticker("KRW-BTC")
+
+    mock_tickers.assert_awaited_once_with(["KRW-BTC"])
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_ticker_returns_none_when_empty(adapter: UpbitAdapter):
+    """get_tickers가 빈 리스트를 반환하면 None을 반환한다."""
+    with patch.object(adapter, "get_tickers", new_callable=AsyncMock, return_value=[]):
+        result = await adapter.get_ticker("KRW-BTC")
+
+    assert result is None

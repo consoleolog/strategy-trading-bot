@@ -7,8 +7,8 @@ import aiohttp
 import jwt
 import structlog
 
-from ..models import Asset, Candle, Order
-from ..utils.constants import CandleType, OrderSide, OrderType, SmpType, StreamType, Timeframe, TimeInForce
+from ..models import Asset, Candle, Order, Ticker
+from ..utils.constants import AskBid, CandleType, OrderSide, OrderType, SmpType, StreamType, Timeframe, TimeInForce
 from ..utils.errors import error_handler
 from ..utils.helpers import measure_time, rate_limit, retry
 
@@ -153,6 +153,72 @@ class UpbitAdapter:
             Timeframe.HOUR_4: CandleType.HOUR_4,
         }
         return timeframe_to_candle_type_map.get(timeframe, CandleType.HOUR_4)
+
+    # ========================================================================
+    # TICKER DATA
+    # ========================================================================
+
+    @measure_time
+    @retry(max_retries=3, delay=1.0)
+    @rate_limit(calls=10, period=1.0)
+    async def get_tickers(self, markets: list[str]) -> list[Ticker]:
+        """복수 마켓의 현재가 정보를 조회한다 (GET /v1/ticker).
+
+        Args:
+            markets: 마켓 코드 목록 (예: ``["KRW-BTC", "KRW-ETH"]``).
+
+        Returns:
+            현재가 정보 목록. 요청한 순서와 동일하게 반환된다.
+        """
+        params = {"markets": ",".join(markets)}
+        response = await self._request("GET", "/ticker", params=params)
+        return [
+            Ticker(
+                type="ticker",
+                code=r.get("market"),
+                opening_price=r.get("opening_price"),
+                high_price=r.get("high_price"),
+                low_price=r.get("low_price"),
+                trade_price=r.get("trade_price"),
+                prev_closing_price=r.get("prev_closing_price"),
+                change=r.get("change"),
+                change_price=r.get("change_price"),
+                signed_change_price=r.get("signed_change_price"),
+                change_rate=r.get("change_rate"),
+                signed_change_rate=r.get("signed_change_rate"),
+                trade_volume=r.get("trade_volume"),
+                acc_trade_volume=r.get("acc_trade_volume"),
+                acc_trade_volume_24h=r.get("acc_trade_volume_24h"),
+                acc_trade_price=r.get("acc_trade_price"),
+                acc_trade_price_24h=r.get("acc_trade_price_24h"),
+                trade_date=r.get("trade_date"),
+                trade_time=r.get("trade_time"),
+                trade_timestamp=r.get("trade_timestamp"),
+                ask_bid=AskBid.BID,
+                acc_ask_volume=Decimal("0"),
+                acc_bid_volume=Decimal("0"),
+                highest_52_week_price=r.get("highest_52_week_price"),
+                highest_52_week_date=r.get("highest_52_week_date"),
+                lowest_52_week_price=r.get("lowest_52_week_price"),
+                lowest_52_week_date=r.get("lowest_52_week_date"),
+                market_state=r.get("market_state"),
+                timestamp=r.get("timestamp"),
+                stream_type=StreamType.SNAPSHOT,
+            )
+            for r in response
+        ]
+
+    async def get_ticker(self, market: str) -> Ticker | None:
+        """단일 마켓의 현재가 정보를 조회한다.
+
+        Args:
+            market: 마켓 코드 (예: ``KRW-BTC``).
+
+        Returns:
+            현재가 정보. 조회 실패 시 None.
+        """
+        tickers = await self.get_tickers([market])
+        return tickers[0] if tickers else None
 
     # ========================================================================
     # ORDER OPERATIONS
