@@ -20,4 +20,4 @@ class TradeRepository(BaseRepository[Trade]):
 
     @property
     def table_name(self) -> str:
-        return "trades"
+        return "trading.trades"

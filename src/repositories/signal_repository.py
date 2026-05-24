@@ -20,7 +20,7 @@ class SignalRepository(BaseRepository[Signal]):
 
     @property
     def table_name(self) -> str:
-        return "signals"
+        return "trading.signals"
 
     async def find_by_strategy_id_and_indicator_id_and_type(
         self, strategy_id: str, indicator_id: str, type: SignalType
