@@ -169,7 +169,6 @@ class Orchestrator:
                 codes=self.markets,
                 types=self.candle_types,
                 on_candle=self._on_candle,
-                on_candle_close=self._on_candle_close,
             )
             logger.info("orchestrator.setup.market_feed_ready")
 
@@ -313,14 +312,6 @@ class Orchestrator:
             await self.shutdown()
 
     async def _on_candle(self, candle: Candle) -> None:
-        """실시간 Candle 수신 콜백 — 캔들을 캐시하고 레짐을 감지한다.
-
-        거래소에서 과거 캔들 목록을 조회한 뒤 마지막 항목을 수신된 캔들로 교체하여
-        최신 가격이 반영된 상태로 Redis 에 저장하고 레짐 감지를 수행한다.
-
-        Args:
-            candle: 수신된 실시간 Candle 데이터.
-        """
         if not self._running:
             return
 
@@ -354,37 +345,11 @@ class Orchestrator:
         await self._redis.hset("candles", key, candles)
 
         regime = self._regime_detector.detect(candles)
-        logger.debug(
-            "orchestrator.candle.regime_detected", market=candle.code, timeframe=candle.type.value, regime=regime.value
-        )
-
-    async def _on_candle_close(self, candle: Candle) -> None:
-        if not self._running:
-            return
 
         try:
-            key = f"{candle.code}:{candle.type}"
-            candles = await self._redis.hget("candles", key)
-            candles[-1] = candle
-
-            regime = self._regime_detector.current_regime
-            logger.info(
-                "orchestrator.candle_close.started",
-                market=candle.code,
-                candle_type=candle.type.value,
-                regime=regime.value,
-            )
-
             for strategy in self._strategies:
                 if regime not in strategy.get_supported_regimes():
-                    logger.info(
-                        "orchestrator.candle_close.strategy_skipped",
-                        strategy=strategy.name,
-                        market=candle.code,
-                        regime=regime.value,
-                    )
                     continue
-
                 await strategy.evaluate(candles, regime, self._portfolio)
 
             ticker = await self._adapter.get_ticker(candle.code)
